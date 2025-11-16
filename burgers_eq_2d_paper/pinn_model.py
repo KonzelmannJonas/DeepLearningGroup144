@@ -43,7 +43,7 @@ class MLP(nn.Module):
     def forward(self, X):
         Y_n = self.model(X)
         Y_p = self.boundary_solution(X)
-        D = self.boundary_function(X)
+        D = self.boundary_distance(X)
 
         return D * Y_n + (1 - D) * Y_p
 
@@ -56,7 +56,7 @@ class MLP(nn.Module):
 
         return torch.hstack((u, v))
 
-    def boundary_function(self, X):
+    def boundary_distance(self, X):
         alpha = 26.4  # Reaches 0.99 at t = 0.1
         # alpha = 10.56 # Reaches 0.99 at t = 0.25
 
