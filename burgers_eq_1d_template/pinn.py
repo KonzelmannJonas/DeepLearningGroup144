@@ -214,7 +214,8 @@ class PINN(nn.Module):
             u_pred_slice = u_pred[t_idx, :]
             
             if plot_analytic:
-                u_ana_slice = self.analytical_solution(x, t_slice)
+                t_slice_arr = np.full(x.shape, t_slice)
+                u_ana_slice = self.analytical_solution(x, t_slice_arr)
                 ax_1d.plot(x, u_ana_slice, 'r--', label='Analytical', linewidth=2)
 
             ax_1d.plot(x, u_pred_slice, 'b-', label="Predicted", linewidth=2)
