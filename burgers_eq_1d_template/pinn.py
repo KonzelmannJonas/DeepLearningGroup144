@@ -30,7 +30,7 @@ class PINN(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.network.to(self.device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
-        self.num_epochs = 1000
+        self.num_epochs = 5000
 
         # set up experiment parameters
         torch.set_default_dtype(torch.float32)
@@ -137,8 +137,52 @@ class PINN(nn.Module):
     def load_model(self, path="./saved_models/pinn_model.pth"):
         self.network.load_state_dict(torch.load(path))
         print(f"Model loaded from {path}")
+        
+    def analytical_solution(self, x: np.ndarray, t: np.ndarray) -> np.ndarray:
+        """
+        Analytic/reference solution u(x,t) used for error computation.
+        Here we use the linear diffusion solution corresponding to
+        the initial condition u(x,0) = -sin(pi x).
+        """
+        return -np.sin(np.pi * x) * np.exp(-self.nu * (np.pi**2) * t)
+    
+    def compute_l2_error(self, N_x: int = 256, N_t: int = 100) -> float:
+        """
+        Compute the (relative) L2 error norm between PINN prediction and
+        the analytic solution on a uniform space–time grid.
 
-    def plot_solution(self, root="./saved_plots/", name="prediction.png"):
+        Returns:
+            float: relative L2 error ||u_pred - u_ana||_2 / ||u_ana||_2
+        """
+        # Build evaluation grid
+        x = np.linspace(self.x_min, self.x_max, N_x)
+        t = np.linspace(self.t_min, self.t_max, N_t)
+        X, T = np.meshgrid(x, t)
+
+        # Prepare input for the network
+        XT = np.hstack((X.flatten()[:, None], T.flatten()[:, None]))
+        XT_tensor = torch.tensor(XT, dtype=torch.float32).to(self.device)
+
+        # PINN prediction
+        u_pred = self.predict(XT_tensor).cpu().numpy().reshape(N_t, N_x)
+
+        # Analytic solution on the same grid
+        u_ana = self.analytical_solution(X, T)
+
+        # L2 norms via discrete approximation (simple average)
+        diff_sq = (u_pred - u_ana) ** 2
+        ana_sq = u_ana ** 2
+
+        # Mean over grid then sqrt -> discrete L2; relative error
+        num = np.sqrt(np.mean(diff_sq))
+        den = np.sqrt(np.mean(ana_sq))
+
+        if den == 0.0:
+            return num  # fall back to absolute error
+
+        return num / den
+
+    def plot_solution(self, plot_analytic=True, root="./saved_plots/", name="prediction.png"):
         N_x, N_t = 256, 100
         x = np.linspace(self.x_min, self.x_max, N_x)
         t = np.linspace(self.t_min, self.t_max, N_t)
@@ -167,14 +211,18 @@ class PINN(nn.Module):
             
             # Find the closest time index
             t_idx = int(t_slice * (N_t - 1))
-            u_slice = u_pred[t_idx, :]
+            u_pred_slice = u_pred[t_idx, :]
             
-            ax_1d.plot(x, u_slice, 'b-', linewidth=2)
+            if plot_analytic:
+                u_ana_slice = self.analytical_solution(x, t_slice)
+                ax_1d.plot(x, u_ana_slice, 'r--', label='Analytical', linewidth=2)
+
+            ax_1d.plot(x, u_pred_slice, 'b-', label="Predicted", linewidth=2)
             ax_1d.set_xlabel('x')
             ax_1d.set_ylabel('u')
             ax_1d.set_title(f't = {t_slice}')
             ax_1d.grid(True, alpha=0.3)
-            ax_1d.set_ylim([u_pred.min(), u_pred.max()])
+            ax_1d.legend()
         
         plt.tight_layout()
         plt.subplots_adjust(hspace=0.4)  # Adjust vertical spacing between rows
