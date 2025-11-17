@@ -20,14 +20,8 @@ class ResidualBlock(nn.Module):
 class MLP(nn.Module):
     def __init__(self, hidden_dim=64, num_layers=5):
         super().__init__()
-        # modules = []
-        # modules.append(nn.Linear(3, hidden_dim))
-        # for _ in range(num_layers - 2):
-        #     modules.append(ResidualBlock(hidden_dim))
-        # modules.append(nn.Linear(hidden_dim, 2))
-        # self.model = nn.Sequential(*modules)
         # Add number of MLP input and outputs to the layers list
-        layers = [3,128,128,128,128,128,2]
+        layers = [3,20,20,2]
         
         # Built the MLP
         modules = []
@@ -78,10 +72,11 @@ class PINN:
         self.loss_f = nn.MSELoss().to(self.device)
         self.loss_s = nn.L1Loss().to(self.device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
+        self.epochs = 10000
 
         # parameters
-        self.nf = 1000
-        self.ns = 100
+        self.nf = 10000
+        self.ns = 1000
         self.nu = 0.01 / np.pi
         self.x_low = 0.0
         self.x_high = 1.0
@@ -201,8 +196,8 @@ class PINN:
         loss_solution_points = self.loss_s(self.network(self.X_s), self.Y_s)
         return loss_residual + loss_solution_points
 
-    def train(self, epochs=100):
-        for epoch in range(epochs):
+    def train(self):
+        for epoch in range(self.epochs):
             self.optimizer.zero_grad()
             loss = self.total_loss()
             loss.backward()
@@ -238,18 +233,18 @@ class PINN:
         fig, ax = plt.subplots(2, len(time_slices), figsize=(15, 6))
 
         for j, ts in enumerate(time_slices):
-            Y_pred = self.predict(torch.tensor(np.hstack((xy_flat, np.full((xy_flat.shape[0], 1), ts))), dtype=torch.float32).to(self.device)).cpu().numpy()
+            Y_pred = self.predict(torch.tensor(np.hstack((np.full((xy_flat.shape[0], 1), ts), xy_flat)), dtype=torch.float32).to(self.device)).cpu().numpy()
             u = Y_pred[:, 0].reshape(N_x, N_x)
             v = Y_pred[:, 1].reshape(N_x, N_x)
 
             # Plot U
-            im_u = ax[0, j].contourf(xx, yy, u, levels=50, cmap="viridis")
+            im_u = ax[0, j].contourf(xx, yy, u, levels=8, cmap="viridis")
             ax[0, j].set_title(f"U at t = {ts}")
             ax[0, j].set_xlabel("x")
             ax[0, j].set_ylabel("y")
 
             # Plot V
-            im_v = ax[1, j].contourf(xx, yy, v, levels=50, cmap="viridis")
+            im_v = ax[1, j].contourf(xx, yy, v, levels=8, cmap="viridis")
             ax[1, j].set_title(f"V at t = {ts}")
             ax[1, j].set_xlabel("x")
             ax[1, j].set_ylabel("y")
