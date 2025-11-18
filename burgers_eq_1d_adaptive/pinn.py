@@ -32,8 +32,16 @@ class PINN(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.network.to(self.device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
-        self.num_epochs = 5000
-
+        self.num_epochs = 1000
+        
+        # save old model for adaptive collocation point control
+        self.old_network = MLP()
+        self.old_network.load_state_dict(self.network.state_dict())
+        self.old_network.to(self.device)
+        
+        # use adaptive collocation point control
+        self.is_adaptive = True
+        
         # set up experiment parameters
         torch.set_default_dtype(torch.float32)
         # spatial and temporal domain boundaries
@@ -121,6 +129,61 @@ class PINN(nn.Module):
 
         loss = loss_f + loss_0 + loss_b
         return loss
+    
+    def update_collocation_points(self):
+        """
+            Adaptively update the collocation points based on the current model and old model.
+        """
+        with torch.no_grad():
+            u_pred_new = self.network(self.X_f)
+            u_pred_old = self.old_network(self.X_f)
+            error = torch.abs(u_pred_new - u_pred_old).detach().cpu().numpy().flatten()
+            
+        error_tol = 1e-1
+        high_error_indices = np.where(error > error_tol)[0]
+        low_error_indices = np.where(error <= error_tol)[0]
+        print(f"high_error_indices: {high_error_indices.shape[0]}/{self.N_f}")
+        print(f"low_error_indices: {low_error_indices.shape[0]}/{self.N_f}")
+
+        # add new points
+        new_points = []
+        for i in high_error_indices:
+            if np.random.rand() < 0.0: # do not always add a point
+                base_point = self.X_f[i].detach().cpu().numpy()
+                new_noisy_point = base_point + np.random.normal(0, 0.01, size=base_point.shape) # fixe std deviation
+                new_points.append(new_noisy_point)
+        
+        # remove points
+        if low_error_indices.size > 0:
+            to_drop_mask = np.random.rand(low_error_indices.size) < 0.3 # drop them with fixed probability
+            drop_indices = low_error_indices[to_drop_mask]
+
+            if drop_indices.size > 0:
+                # build a boolean mask over all points: True => keep
+                keep_mask = np.ones(self.N_f, dtype=bool)
+                keep_mask[drop_indices] = False
+
+                # apply mask to self.X_f
+                X_f_np = self.X_f.detach().cpu().numpy()
+                X_f_np = X_f_np[keep_mask]
+
+                # rebuild self.X_f as a tensor with requires_grad=True
+                self.X_f = torch.tensor(X_f_np,
+                                        dtype=torch.float32,
+                                        requires_grad=True).to(self.device)
+
+                # update N_f
+                self.N_f = self.X_f.shape[0]
+                
+        self.N_f += len(new_points)
+        if len(new_points) > 0:
+            new_points = np.array(new_points)
+            new_points_tensor = torch.tensor(new_points, dtype=torch.float32, requires_grad=True).to(self.device)
+            self.X_f = torch.cat([self.X_f, new_points_tensor], dim=0)
+            
+            
+        # save current model as old model for next iteration
+        self.old_network.load_state_dict(self.network.state_dict())
 
     def train(self):
         print("Starting training...")
@@ -134,6 +197,9 @@ class PINN(nn.Module):
 
             if (epoch+1) % 10 == 0:
                 print(f'Epoch {epoch+1}/{self.num_epochs}, Loss: {loss.item():.5e}')
+
+            if self.is_adaptive and (epoch+1) % 100 == 0:
+                self.update_collocation_points()
 
         total_time = time.perf_counter() - start_time
         print(f"Training complete! Total time: {total_time:.2f} seconds")
@@ -160,7 +226,7 @@ class PINN(nn.Module):
         error_u = np.linalg.norm(self.u_star-u_pred,2)/np.linalg.norm(self.u_star,2)
         return error_u
 
-    def plot_solution(self, root="./saved_plots/", name="prediction.png"):
+    def plot_solution(self, overlay_collocation_points=True, root="./saved_plots/", name="prediction.png"):
         N_x, N_t = 256, 100
         x = np.linspace(self.x_min, self.x_max, N_x)
         t = np.linspace(self.t_min, self.t_max, N_t)
@@ -189,6 +255,22 @@ class PINN(nn.Module):
         ax_contour.set_xlabel('t')
         ax_contour.set_ylabel('x')
         ax_contour.set_title("Predicted solution u(x,t) via PINN")
+        
+        # overlay collocation points
+        if overlay_collocation_points:
+            Xf_np = self.X_f.detach().cpu().numpy()  # shape (N_f, 2): [x, t]
+            x_f = Xf_np[:, 0]
+            t_f = Xf_np[:, 1]
+            ax_contour.scatter(
+                t_f, x_f,             # note: t on x-axis, x on y-axis
+                marker='x',
+                s=10,
+                c='k',
+                linewidths=0.7,
+                alpha=0.7,
+                label='Collocation points'
+            )
+            ax_contour.legend(loc='upper right')
 
         # Bottom: one axis per time slice, sharing the same columns
         for i, t_slice in enumerate(time_slices):
