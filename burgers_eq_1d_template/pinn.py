@@ -6,6 +6,8 @@ import time
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.io
+import matplotlib.gridspec as gridspec
     
 class MLP(nn.Module):
     def __init__(self):
@@ -73,8 +75,23 @@ class PINN(nn.Module):
         self.xb_right = torch.tensor(xb_right, dtype=torch.float32)
         self.ub_left = torch.tensor(ub_left, dtype=torch.float32)
         self.ub_right = torch.tensor(ub_right, dtype=torch.float32)
+        
+        # load ground truth data
+        data = scipy.io.loadmat('./data/burgers_shock.mat')
+        
+        self.t = data['t'].flatten()[:,None]
+        self.x = data['x'].flatten()[:,None]
+        self.Exact = np.real(data['usol']).T
 
+        X, T = np.meshgrid(self.x, self.t)
 
+        X_star = np.hstack((X.flatten()[:,None], T.flatten()[:,None]))
+        u_star = self.Exact.flatten()[:,None]
+
+        # convert to pytorch tensors
+        self.X_star = torch.tensor(X_star, dtype=torch.float32).to(self.device)
+        self.u_star = torch.tensor(u_star, dtype=torch.float32).to(self.device)
+        
     def pde_residual(self, X):
         x = X[:, 0:1] 
         t = X[:, 1:2] 
@@ -137,97 +154,58 @@ class PINN(nn.Module):
     def load_model(self, path="./saved_models/pinn_model.pth"):
         self.network.load_state_dict(torch.load(path))
         print(f"Model loaded from {path}")
-        
-    def analytical_solution(self, x: np.ndarray, t: np.ndarray) -> np.ndarray:
-        """
-        Analytic/reference solution u(x,t) used for error computation.
-        Here we use the linear diffusion solution corresponding to
-        the initial condition u(x,0) = -sin(pi x).
-        """
-        return -np.sin(np.pi * x) * np.exp(-self.nu * (np.pi**2) * t)
     
-    def compute_l2_error(self, N_x: int = 256, N_t: int = 100) -> float:
-        """
-        Compute the (relative) L2 error norm between PINN prediction and
-        the analytic solution on a uniform space–time grid.
+    def compute_l2_error(self):
+        u_pred = self.predict(self.X_star)
+        error_u = np.linalg.norm(self.u_star-u_pred,2)/np.linalg.norm(self.u_star,2)
+        return error_u
 
-        Returns:
-            float: relative L2 error ||u_pred - u_ana||_2 / ||u_ana||_2
-        """
-        # Build evaluation grid
-        x = np.linspace(self.x_min, self.x_max, N_x)
-        t = np.linspace(self.t_min, self.t_max, N_t)
-        X, T = np.meshgrid(x, t)
-
-        # Prepare input for the network
-        XT = np.hstack((X.flatten()[:, None], T.flatten()[:, None]))
-        XT_tensor = torch.tensor(XT, dtype=torch.float32).to(self.device)
-
-        # PINN prediction
-        u_pred = self.predict(XT_tensor).cpu().numpy().reshape(N_t, N_x)
-
-        # Analytic solution on the same grid
-        u_ana = self.analytical_solution(X, T)
-
-        # L2 norms via discrete approximation (simple average)
-        diff_sq = (u_pred - u_ana) ** 2
-        ana_sq = u_ana ** 2
-
-        # Mean over grid then sqrt -> discrete L2; relative error
-        num = np.sqrt(np.mean(diff_sq))
-        den = np.sqrt(np.mean(ana_sq))
-
-        if den == 0.0:
-            return num  # fall back to absolute error
-
-        return num / den
-
-    def plot_solution(self, plot_analytic=True, root="./saved_plots/", name="prediction.png"):
+    def plot_solution(self, root="./saved_plots/", name="prediction.png"):
         N_x, N_t = 256, 100
         x = np.linspace(self.x_min, self.x_max, N_x)
         t = np.linspace(self.t_min, self.t_max, N_t)
         X, T = np.meshgrid(x, t)
         XT = np.hstack((X.flatten()[:, None], T.flatten()[:, None]))
         XT_tensor = torch.tensor(XT, dtype=torch.float32).to(self.device)
-        
+
         u_pred = self.predict(XT_tensor).cpu().numpy().reshape(N_t, N_x)
-        
+
         time_slices = [0.0, 0.25, 0.5, 0.75]
-        
-        # Create figure with larger size
-        plt.figure(figsize=(20, 12))
-        
-        # Top plot: Large contour plot spanning the full width (with switched axes)
-        ax_contour = plt.subplot2grid((3, 5), (0, 0), colspan=len(time_slices), rowspan=2)
-        contour = ax_contour.contourf(T.T, X.T, u_pred.T, levels=100, cmap='viridis')
-        plt.colorbar(contour, ax=ax_contour, label='u(x,t)')
+
+        # Create figure and GridSpec
+        fig = plt.figure(figsize=(20, 12))
+        gs = gridspec.GridSpec(
+            3,                         # 3 rows
+            len(time_slices),          # same number of columns as time_slices
+            height_ratios=[2, 0.1, 1], # top contour, small spacer, bottom plots
+            hspace=0.4,                # vertical spacing
+            wspace=0.3                 # horizontal spacing
+        )
+
+        # Top: contour spanning all columns
+        ax_contour = fig.add_subplot(gs[0, :])
+        contour = ax_contour.contourf(T.T, X.T, u_pred.T, levels=100, cmap='coolwarm')
+        fig.colorbar(contour, ax=ax_contour, label='u(x,t)')
         ax_contour.set_xlabel('t')
         ax_contour.set_ylabel('x')
         ax_contour.set_title("Predicted solution u(x,t) via PINN")
-        
-        # Bottom plots: 5 smaller 1D plots for different time slices
+
+        # Bottom: one axis per time slice, sharing the same columns
         for i, t_slice in enumerate(time_slices):
-            ax_1d = plt.subplot2grid((3, len(time_slices)), (2, i))
-            
-            # Find the closest time index
+            ax_1d = fig.add_subplot(gs[2, i])
+
             t_idx = int(t_slice * (N_t - 1))
             u_pred_slice = u_pred[t_idx, :]
-            
-            if plot_analytic:
-                t_slice_arr = np.full(x.shape, t_slice)
-                u_ana_slice = self.analytical_solution(x, t_slice_arr)
-                ax_1d.plot(x, u_ana_slice, 'r--', label='Analytical', linewidth=2)
 
+            ax_1d.plot(self.x, self.Exact[t_idx, :], 'r--', label='Exact', linewidth=2)
             ax_1d.plot(x, u_pred_slice, 'b-', label="Predicted", linewidth=2)
             ax_1d.set_xlabel('x')
             ax_1d.set_ylabel('u')
             ax_1d.set_title(f't = {t_slice}')
             ax_1d.grid(True, alpha=0.3)
             ax_1d.legend()
-        
-        plt.tight_layout()
-        plt.subplots_adjust(hspace=0.4)  # Adjust vertical spacing between rows
+
         os.makedirs(root, exist_ok=True)
-        plt.savefig(os.path.join(root, name), dpi=300, bbox_inches='tight')
+        fig.savefig(os.path.join(root, name), dpi=300, bbox_inches='tight')
         plt.show()
-        plt.close()
+        plt.close(fig)
