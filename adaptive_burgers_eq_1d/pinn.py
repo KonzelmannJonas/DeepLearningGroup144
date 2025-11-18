@@ -32,7 +32,7 @@ class PINN(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.network.to(self.device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
-        self.num_epochs = 1000
+        self.num_epochs = 5000
         
         # save old model for adaptive collocation point control
         self.old_network = MLP()
@@ -41,7 +41,8 @@ class PINN(nn.Module):
         
         # use adaptive collocation point control
         self.is_adaptive = True
-        
+        self.adaptive_interval = 300
+
         # set up experiment parameters
         torch.set_default_dtype(torch.float32)
         # spatial and temporal domain boundaries
@@ -52,7 +53,7 @@ class PINN(nn.Module):
         self.nu = 0.01 / np.pi
 
         # collocation points
-        self.N_f = 10000
+        self.N_f = 1000
         self.N_0 = 200
         self.N_b = 200
 
@@ -127,19 +128,25 @@ class PINN(nn.Module):
         u_right_pred = self.network(torch.cat([self.xb_right, self.tb], dim=1))
         loss_b = torch.mean(u_left_pred**2) + torch.mean(u_right_pred**2)
 
-        loss = loss_f + loss_0 + loss_b
+        
+        w = 100
+        loss = loss_f + w * loss_0 + loss_b
         return loss
     
     def update_collocation_points(self):
         """
             Adaptively update the collocation points based on the current model and old model.
         """
+        add_point_p = 0.3
+        remove_point_p = 0.3
+        point_std = 0.03
+        
         with torch.no_grad():
             u_pred_new = self.network(self.X_f)
             u_pred_old = self.old_network(self.X_f)
             error = torch.abs(u_pred_new - u_pred_old).detach().cpu().numpy().flatten()
             
-        error_tol = 1e-1
+        error_tol = 1e-2
         high_error_indices = np.where(error > error_tol)[0]
         low_error_indices = np.where(error <= error_tol)[0]
         print(f"high_error_indices: {high_error_indices.shape[0]}/{self.N_f}")
@@ -148,14 +155,15 @@ class PINN(nn.Module):
         # add new points
         new_points = []
         for i in high_error_indices:
-            if np.random.rand() < 0.0: # do not always add a point
+            if np.random.rand() < add_point_p: # do not always add a point
                 base_point = self.X_f[i].detach().cpu().numpy()
-                new_noisy_point = base_point + np.random.normal(0, 0.01, size=base_point.shape) # fixe std deviation
-                new_points.append(new_noisy_point)
-        
+                new_noisy_point = base_point + np.random.normal(0, point_std, size=base_point.shape) # fixe std deviation
+                if new_noisy_point[0] > self.x_min and new_noisy_point[0] < self.x_max and new_noisy_point[1] > self.t_min and new_noisy_point[1] < self.t_max:
+                    new_points.append(new_noisy_point)
+
         # remove points
         if low_error_indices.size > 0:
-            to_drop_mask = np.random.rand(low_error_indices.size) < 0.3 # drop them with fixed probability
+            to_drop_mask = np.random.rand(low_error_indices.size) < remove_point_p # drop them with fixed probability
             drop_indices = low_error_indices[to_drop_mask]
 
             if drop_indices.size > 0:
@@ -181,6 +189,8 @@ class PINN(nn.Module):
             new_points_tensor = torch.tensor(new_points, dtype=torch.float32, requires_grad=True).to(self.device)
             self.X_f = torch.cat([self.X_f, new_points_tensor], dim=0)
             
+        print(f"new N_f: {self.N_f}")
+            
             
         # save current model as old model for next iteration
         self.old_network.load_state_dict(self.network.state_dict())
@@ -198,7 +208,7 @@ class PINN(nn.Module):
             if (epoch+1) % 10 == 0:
                 print(f'Epoch {epoch+1}/{self.num_epochs}, Loss: {loss.item():.5e}')
 
-            if self.is_adaptive and (epoch+1) % 100 == 0:
+            if self.is_adaptive and (epoch+1) % self.adaptive_interval == 0:
                 self.update_collocation_points()
 
         total_time = time.perf_counter() - start_time
@@ -214,13 +224,21 @@ class PINN(nn.Module):
     def save_model(self, root="./saved_models", name="pinn_model.pth"):
         os.makedirs(root, exist_ok=True)
         path = os.path.join(root, name)
-        torch.save(self.network.state_dict(), path)
+        checkpoint = {
+            "model_state": self.network.state_dict(),
+            "N_f": self.N_f,
+            "X_f": self.X_f.detach().cpu().numpy()
+        }
+        torch.save(checkpoint, path)
         print(f"Model saved to {path}")
 
     def load_model(self, path="./saved_models/pinn_model.pth"):
-        self.network.load_state_dict(torch.load(path))
+        checkpoint = torch.load(path)
+        self.network.load_state_dict(checkpoint["model_state"])
+        self.N_f = checkpoint["N_f"]
+        self.X_f = torch.tensor(checkpoint["X_f"], dtype=torch.float32, requires_grad=True).to(self.device)
         print(f"Model loaded from {path}")
-    
+
     def compute_l2_error(self):
         u_pred = self.predict(self.X_star)
         error_u = np.linalg.norm(self.u_star-u_pred,2)/np.linalg.norm(self.u_star,2)

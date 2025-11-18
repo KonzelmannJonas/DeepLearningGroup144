@@ -2,6 +2,7 @@ from pinn import PINN
 
 def main():
     pinn = PINN()
+    # pinn.is_adaptive = False
     pinn.train()
     pinn.save_model()
     print(f"N_f: {pinn.N_f}")
