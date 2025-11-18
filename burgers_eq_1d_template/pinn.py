@@ -160,7 +160,7 @@ class PINN(nn.Module):
         error_u = np.linalg.norm(self.u_star-u_pred,2)/np.linalg.norm(self.u_star,2)
         return error_u
 
-    def plot_solution(self, root="./saved_plots/", name="prediction.png"):
+    def plot_solution(self, overlay_collocation_points=True, root="./saved_plots/", name="prediction.png"):
         N_x, N_t = 256, 100
         x = np.linspace(self.x_min, self.x_max, N_x)
         t = np.linspace(self.t_min, self.t_max, N_t)
@@ -189,6 +189,22 @@ class PINN(nn.Module):
         ax_contour.set_xlabel('t')
         ax_contour.set_ylabel('x')
         ax_contour.set_title("Predicted solution u(x,t) via PINN")
+        
+        # overlay collocation points
+        if overlay_collocation_points:
+            Xf_np = self.X_f.detach().cpu().numpy()  # shape (N_f, 2): [x, t]
+            x_f = Xf_np[:, 0]
+            t_f = Xf_np[:, 1]
+            ax_contour.scatter(
+                t_f, x_f,             # note: t on x-axis, x on y-axis
+                marker='x',
+                s=10,
+                c='k',
+                linewidths=0.7,
+                alpha=0.7,
+                label='Collocation points'
+            )
+            ax_contour.legend(loc='upper right')
 
         # Bottom: one axis per time slice, sharing the same columns
         for i, t_slice in enumerate(time_slices):
