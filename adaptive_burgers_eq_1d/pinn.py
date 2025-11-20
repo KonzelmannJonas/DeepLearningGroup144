@@ -32,7 +32,7 @@ class PINN(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.network.to(self.device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
-        self.num_epochs = 5000
+        self.num_epochs = 5
         
         # save old model for adaptive collocation point control
         self.old_network = MLP()
