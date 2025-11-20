@@ -139,7 +139,7 @@ class PINN(nn.Module):
         """
         add_point_p = 0.3
         remove_point_p = 0.3
-        point_std = 0.03
+        point_std = 0.001
         
         with torch.no_grad():
             u_pred_new = self.network(self.X_f)
