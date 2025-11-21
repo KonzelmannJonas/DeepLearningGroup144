@@ -14,7 +14,7 @@ class MLP(nn.Module):
     def __init__(self):
         super().__init__()
         self.activation = nn.Tanh()  # naturally scales network output to [-1, 1]
-        layers = [2, 50, 50, 50, 50, 1]
+        layers = [2, 20, 20, 20, 20, 20, 20, 20, 20, 20, 1]
         modules = []
         for i in range(len(layers) - 1):
             modules.append(nn.Linear(layers[i], layers[i + 1]))
@@ -34,24 +34,20 @@ class PINN(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.network.to(self.device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
-        self.num_epochs = 5000
+        self.num_epochs = 10000
         self.train_time = 0
-
-        # save old model for adaptive collocation point control
-        self.old_network = MLP()
-        self.old_network.load_state_dict(self.network.state_dict())
-        self.old_network.to(self.device)
 
         # adaptive collocation point control parameters
         self.is_adaptive = True
         self.adaptive_interval = 100
-        self.add_point_p = 0.3
-        self.remove_point_p = 0.1
-        self.point_std = 0.1
-        self.error_tol = 1e-2  # make lower
-        self.adaptive_error_tol = True
-        
-        self.N_f_0 = 1000  # initial number of collocation points
+        self.add_point_p = 0.1
+        self.remove_point_p = 0.3
+        self.point_std = 0.3
+        self.error_tol = 1e-3  # make lower
+        self.adaptive_error_tol = False
+        self.adaptive_remove_low_error_points = True
+
+        self.N_f_0 = 10000  # initial number of collocation points
 
         # set up experiment parameters
         torch.set_default_dtype(torch.float32)
@@ -85,17 +81,17 @@ class PINN(nn.Module):
         ub_right = np.zeros_like(tb)
 
         # Convert to PyTorch tensors
-        self.X_f = torch.tensor(
-            X_f, dtype=torch.float32, requires_grad=True
+        self.X_f = torch.tensor(X_f, dtype=torch.float32, requires_grad=True).to(
+            self.device
         )  # enable gradients for collocation points
-        self.x0 = torch.tensor(x0, dtype=torch.float32)
-        self.t0 = torch.tensor(t0, dtype=torch.float32)
-        self.u0 = torch.tensor(u0, dtype=torch.float32)
-        self.tb = torch.tensor(tb, dtype=torch.float32)
-        self.xb_left = torch.tensor(xb_left, dtype=torch.float32)
-        self.xb_right = torch.tensor(xb_right, dtype=torch.float32)
-        self.ub_left = torch.tensor(ub_left, dtype=torch.float32)
-        self.ub_right = torch.tensor(ub_right, dtype=torch.float32)
+        self.x0 = torch.tensor(x0, dtype=torch.float32).to(self.device)
+        self.t0 = torch.tensor(t0, dtype=torch.float32).to(self.device)
+        self.u0 = torch.tensor(u0, dtype=torch.float32).to(self.device)
+        self.tb = torch.tensor(tb, dtype=torch.float32).to(self.device)
+        self.xb_left = torch.tensor(xb_left, dtype=torch.float32).to(self.device)
+        self.xb_right = torch.tensor(xb_right, dtype=torch.float32).to(self.device)
+        self.ub_left = torch.tensor(ub_left, dtype=torch.float32).to(self.device)
+        self.ub_right = torch.tensor(ub_right, dtype=torch.float32).to(self.device)
 
         # load ground truth data
         data = scipy.io.loadmat("./data/burgers_shock.mat")
@@ -153,79 +149,7 @@ class PINN(nn.Module):
         loss = loss_f + loss_0 + loss_b
         return loss
 
-    def update_collocation_points_old_model(self):
-        """
-        Adaptively update the collocation points based on the current model and old model.
-        """
-        add_point_p = 0.3
-        remove_point_p = 0.3
-        point_std = 0.01
-
-        with torch.no_grad():
-            u_pred_new = self.network(self.X_f)
-            u_pred_old = self.old_network(self.X_f)
-            error = torch.abs(u_pred_new - u_pred_old).detach().cpu().numpy().flatten()
-
-        error_tol = 1e-2
-        high_error_indices = np.where(error > error_tol)[0]
-        low_error_indices = np.where(error <= error_tol)[0]
-        print(f"high_error_indices: {high_error_indices.shape[0]}/{self.N_f}")
-        print(f"low_error_indices: {low_error_indices.shape[0]}/{self.N_f}")
-
-        # add new points
-        new_points = []
-        for i in high_error_indices:
-            if np.random.rand() < add_point_p:  # do not always add a point
-                base_point = self.X_f[i].detach().cpu().numpy()
-                new_noisy_point = base_point + np.random.normal(
-                    0, point_std, size=base_point.shape
-                )  # fixe std deviation
-                if (
-                    new_noisy_point[0] > self.x_min
-                    and new_noisy_point[0] < self.x_max
-                    and new_noisy_point[1] > self.t_min
-                    and new_noisy_point[1] < self.t_max
-                ):
-                    new_points.append(new_noisy_point)
-
-        # remove points
-        if low_error_indices.size > 0:
-            to_drop_mask = (
-                np.random.rand(low_error_indices.size) < remove_point_p
-            )  # drop them with fixed probability
-            drop_indices = low_error_indices[to_drop_mask]
-
-            if drop_indices.size > 0:
-                # build a boolean mask over all points: True => keep
-                keep_mask = np.ones(self.N_f, dtype=bool)
-                keep_mask[drop_indices] = False
-
-                # apply mask to self.X_f
-                X_f_np = self.X_f.detach().cpu().numpy()
-                X_f_np = X_f_np[keep_mask]
-
-                # rebuild self.X_f as a tensor with requires_grad=True
-                self.X_f = torch.tensor(
-                    X_f_np, dtype=torch.float32, requires_grad=True
-                ).to(self.device)
-
-                # update N_f
-                self.N_f = self.X_f.shape[0]
-
-        self.N_f += len(new_points)
-        if len(new_points) > 0:
-            new_points = np.array(new_points)
-            new_points_tensor = torch.tensor(
-                new_points, dtype=torch.float32, requires_grad=True
-            ).to(self.device)
-            self.X_f = torch.cat([self.X_f, new_points_tensor], dim=0)
-
-        print(f"new N_f: {self.N_f}")
-
-        # save current model as old model for next iteration
-        self.old_network.load_state_dict(self.network.state_dict())
-
-    def update_collocation_points_residual(self):
+    def update_collocation_points(self):
         """
         Adaptively update the collocation points based on the PDE residual.
         """
@@ -242,8 +166,14 @@ class PINN(nn.Module):
 
         high_error_indices = np.where(error > self.error_tol)[0]
         low_error_indices = np.where(error <= self.error_tol)[0]
-        # print(f"high_error_indices: {high_error_indices.shape[0]}/{self.N_f}")
-        # print(f"low_error_indices: {low_error_indices.shape[0]}/{self.N_f}")
+        print(f"high_error_indices: {high_error_indices.shape[0]}/{self.N_f}")
+        print(f"low_error_indices: {low_error_indices.shape[0]}/{self.N_f}")
+        
+        if self.adaptive_remove_low_error_points:
+            N_high = high_error_indices.shape[0]
+            N_low = low_error_indices.shape[0]  
+            self.remove_point_p = self.add_point_p * (N_high / (self.N_f_0 - N_high + 1e-6))
+            print(f"Updated remove_point_p: {self.remove_point_p:.4f}")
 
         # add new points
         new_points = []
@@ -262,7 +192,8 @@ class PINN(nn.Module):
                 ):
                     new_points.append(new_noisy_point)
 
-        # remove points
+        # remove pointsEpoch 8350/10000, Loss: 2.17581e-03
+
         if low_error_indices.size > 0:
             to_drop_mask = (
                 np.random.rand(low_error_indices.size) < self.remove_point_p
@@ -310,7 +241,7 @@ class PINN(nn.Module):
                 print(f"Epoch {epoch+1}/{self.num_epochs}, Loss: {loss.item():.5e}")
 
             if self.is_adaptive and (epoch + 1) % self.adaptive_interval == 0:
-                self.update_collocation_points_residual()
+                self.update_collocation_points()
 
         total_time = time.perf_counter() - start_time
         self.train_time = f"{total_time:.2f} seconds"
@@ -343,10 +274,13 @@ class PINN(nn.Module):
         print(f"Model loaded from {path}")
 
     def compute_l2_error(self):
-        u_pred = self.predict(self.X_star)
-        error_u = np.linalg.norm(self.u_star - u_pred, 2) / np.linalg.norm(
-            self.u_star, 2
-        )
+        """
+        Compute the relative L2 error between the predicted and exact solutions.
+        """
+        u_pred = self.predict(self.X_star).cpu().numpy()
+        u_pred = u_pred.flatten()[:, None]
+        u_star_np = self.u_star.cpu().numpy()
+        error_u = np.linalg.norm(u_star_np - u_pred, 2) / np.linalg.norm(u_star_np, 2)
         return error_u
 
     def create_experiment_folder(self):
@@ -396,7 +330,8 @@ class PINN(nn.Module):
             "point_std": self.point_std,
             "N_f_0": self.N_f_0,
             "train_time": self.train_time,
-            "l2_error" : self.compute_l2_error(),
+            "l2_error": self.compute_l2_error(),
+            "adaptive_remove_low_error_points": self.adaptive_remove_low_error_points,
         }
         if hasattr(self, "add_point_p"):
             parameters["add_point_p"] = self.add_point_p

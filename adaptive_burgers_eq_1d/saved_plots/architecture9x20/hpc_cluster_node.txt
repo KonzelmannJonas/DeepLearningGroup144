@@ -1,0 +1,2 @@
+sxm2sh
+This node has 2 Nvidia-Volta-100 GPUs, each with 16GB of memory.
