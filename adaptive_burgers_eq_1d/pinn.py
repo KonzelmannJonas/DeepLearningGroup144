@@ -52,13 +52,25 @@ class FNN(nn.Module):
 # ==========================================
 
 class PINN_Burgers:
-    def __init__(self, network, device):
+    def __init__(self, network= None, device=None, is_adaptive=False):
         """
         I put network as an input so that we can flexibly change architecture of the PINN
         To be coherent with that, also device is in input (otherwise error may be risen) 
         """
-        self.device = device
-        self.network = network.to(device)
+        self.is_adaptive = is_adaptive
+
+        if device is None:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = device
+
+        if network is None:
+            # Default architecture is FNN
+            default_layers = [2, 50, 50, 50, 50, 1] 
+            self.network = FNN(default_layers).to(self.device)
+        else:
+            self.network = network.to(self.device)
+
         self.num_epochs = 5000 
 
         # Physical parameters
@@ -105,6 +117,7 @@ class PINN_Burgers:
         X_f_np[:, 1] = X_f_np[:, 1] * (self.t_max - self.t_min) + self.t_min # t
         
         self.X_f = torch.tensor(X_f_np, dtype=torch.float32, requires_grad=True).to(self.device)
+        self.N_f = self.X_f.shape[0]
 
         # Initial Condition u(x,0) = -sin(pi*x)
         x0 = np.linspace(self.x_min, self.x_max, N_0)[:, None]
@@ -165,7 +178,7 @@ class PINN_Burgers:
         
         return loss_f + loss_0 + loss_b
     
-    def train(self):
+    def train_uniform_sampling(self):
         """
         Runs standard training using only the initial, fixed set of collocation points (X_f).
         """
@@ -224,8 +237,10 @@ class PINN_Burgers:
         # it computes gradient just for the current network (current sampling).
         # Detach ==> prevent infinite graph growth.        
         new_X_f = torch.cat((self.X_f.detach(), X_add), dim=0)
-        self.X_f = new_X_f
+        self.X_f = new_X_f.detach()
         self.X_f.requires_grad = True
+
+        self.N_f = self.X_f.shape[0]
         
         avg_resid = np.mean(f_cand_val)
         print(f"[RAR] Added {num_add} points. Total Collocation: {len(self.X_f)}. Avg Residual on candidates: {avg_resid:.5e}")
@@ -263,6 +278,13 @@ class PINN_Burgers:
 
         total_time = time.perf_counter() - start_time
         print(f"Training complete! Total time: {total_time:.2f} seconds")
+
+    def train(self, rar_iter=5):
+        """ Unified training method which dispatches to RAR or Uniform sampling"""
+        if self.is_adaptive:
+            self.train_RAR(rar_iter=rar_iter)
+        else:
+            self.train_uniform_sampling()
     
     def predict(self, X):
         self.network.eval()

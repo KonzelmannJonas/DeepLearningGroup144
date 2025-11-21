@@ -1,8 +1,8 @@
-from pinn import PINN
+from pinn import PINN_Burgers
 
 def main():
-    pinn = PINN()
-    # pinn.is_adaptive = False
+    # adaptive sampling
+    pinn = PINN_Burgers(is_adaptive=True)    
     pinn.train()
     pinn.save_model()
     print(f"N_f: {pinn.N_f}")
@@ -12,3 +12,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
+## Warning: Ground truth data './data/burgers_shock.mat' not found. L2 error computation will be skipped.
+# Guys I tried the training without real data XD
