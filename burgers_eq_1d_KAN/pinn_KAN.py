@@ -8,32 +8,51 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.io
 import matplotlib.gridspec as gridspec
+from kan_lib.KANLayer import KANLayer
     
-class MLP(nn.Module):
+class KAN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.activation = nn.Tanh() # naturally scales network output to [-1, 1]
-        layers = [2, 50, 50, 50, 50, 1]
-        modules = []
+        # Architecture: [Input, Hidden, Hidden, Hidden, Output]
+        layers = [2, 5, 5, 5, 1]
+
+        # KAN-specific parameters
+        grid_size = 10  # Defines the spline resolution.
+        k = 3          # Polynomial order (cubic)
+
+        self.layers = nn.ModuleList()
+
+        # Create the layers
         for i in range(len(layers) - 1):
-            modules.append(nn.Linear(layers[i], layers[i+1]))
-        self.layers = nn.ModuleList(modules)
+            in_dim = layers[i]
+            out_dim = layers[i + 1]
+
+            # Instantiate the KANLayer
+            # Pass 'num' (grid size) and 'k' (spline order)
+            self.layers.append(
+                KANLayer(in_dim, out_dim, num=grid_size, k=k)
+            )
 
     def forward(self, x):
-        for i, layer in enumerate(self.layers[:-1]):
-            x = self.activation(layer(x))
-        return self.layers[-1](x)
+        # The loop is simpler now:
+        for layer in self.layers:
+            # KANLayer returns 4 values; we only want the first (x)
+            # DO NOT apply tanh here — the layer is already non-linear.
+            x, _, _, _ = layer(x)
+            
+        return x
 
 class PINN(nn.Module):
     def __init__(self):
         super(PINN, self).__init__()
         # set up neural network parameters
-        self.network = MLP()
+        self.network = KAN()
         #self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device("cpu")
         self.network.to(self.device)
-        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
-        self.num_epochs = 500
+        self.optimizer_adam = torch.optim.Adam(self.network.parameters(), lr=0.01) # Higher LR for KAN
+        self.optimizer = torch.optim.LBFGS(self.network.parameters(), lr=1.0)
+        self.num_epochs = 2000
 
         # set up experiment parameters
         torch.set_default_dtype(torch.float32)
@@ -124,27 +143,127 @@ class PINN(nn.Module):
         return loss
 
 
+    # def train(self):
+    #     print("Starting training...")
+    #     start_time = time.perf_counter()
+    #     loss_history = []  # <--- Create an empty list to store loss values
+            
+    #     for epoch in range(self.num_epochs):
+
+    #         # Bloc d'Actualització del Grid
+    #         if epoch % 50 == 0 and epoch < self.num_epochs // 2:
+                
+    #             # 1. Comencem amb l'entrada original del problema (x, t)
+    #             # Mida: [10000, 2]
+    #             x_input = self.X_f 
+                
+    #             # 2. Recorrem les capes una per una
+    #             for layer in self.network.layers:
+                    
+    #                 # A. Actualitzem el grid d'AQUESTA capa amb l'entrada que té ara mateix.
+    #                 # Si és la primera capa, x_input té mida 2.
+    #                 # Si és la segona, x_input tindrà mida 10.
+    #                 layer.update_grid_from_samples(x_input)
+                    
+    #                 # B. "empenyem" les dades a través de la capa per preparar-les per la següent.
+    #                 # layer(x_input) retorna 4 coses, només volem la primera (la sortida transformada)
+    #                 # Ara x_input passa de ser l'entrada d'aquesta capa a ser la sortida.
+    #                 x_input, _, _, _ = layer(x_input)
+                    
+    #                 # En la següent volta del bucle, 'x_input' ja tindrà la mida correcta (10)
+    #                 # per a la següent capa.
+                     
+    #         self.optimizer.zero_grad()
+    #         loss = self.loss_func()
+    #         loss.backward()
+    #         self.optimizer.step()
+            
+    #         # Saving the loss value to the history list
+    #         loss_history.append(loss.item()) 
+
+    #         if (epoch+1) % 50 == 0:
+    #             print(f'Epoch {epoch+1}/{self.num_epochs}, Loss: {loss.item():.5e}')
+
+    #     total_time = time.perf_counter() - start_time
+    #     print(f"Training complete! Total time: {total_time:.2f} seconds")
+    #     # Save model and loss history to disk (if desired)
+    #     try:
+    #         # Ensure saved_models directory exists
+    #         os.makedirs('./saved_models', exist_ok=True)
+    #         # Save the network weights and loss history using save_model
+    #         self.save_model(loss_history=loss_history)
+    #     except Exception:
+    #         # If saving fails here, still return the history so caller can handle it
+    #         pass
+
+    #     return loss_history    
+
     def train(self):
         print("Starting training...")
         start_time = time.perf_counter()
-        loss_history = []  # <--- Create an empty list to store loss values
+        loss_history = []
+        
+        # --- PHASE 1: Adam Optimizer (Coarse tuning & Grid adaptation) ---
+        print("--> Phase 1: Adam Optimizer")
+        # optimizer_adam = torch.optim.Adam(self.network.parameters(), lr=0.01)
+        adam_epochs = 1000  # Half of the training for adaptation
+        
+        for epoch in range(adam_epochs):
+            # Grid update logic: adapt splines to the solution shape
+            # Only done during the first half to avoid instability
+            if epoch % 50 == 0 and epoch < adam_epochs // 2:
+                with torch.no_grad():
+                    x_input = self.X_f 
+                    for layer in self.network.layers:
+                        layer.update_grid_from_samples(x_input)
+                        x_input, _, _, _ = layer(x_input) # Forward pass for next layer
+
+            self.optimizer_adam.zero_grad()
+            loss = self.loss_func()
+            loss.backward()
+            self.optimizer_adam.step()
             
-        for epoch in range(self.num_epochs):
+            loss_history.append(loss.item()) 
+
+            if (epoch+1) % 100 == 0:
+                print(f'[Adam] Epoch {epoch+1}/{adam_epochs}, Loss: {loss.item():.5e}')
+
+        # --- PHASE 2: LBFGS Optimizer (Fine tuning) ---
+        print("--> Phase 2: LBFGS Optimizer")
+        # LBFGS needs a high LR (1.0) to estimate curvature effectively
+        self.optimizer = torch.optim.LBFGS(
+            self.network.parameters(), 
+            lr=1.0, 
+            max_iter=2000, 
+            max_eval=2000, 
+            history_size=50,
+            line_search_fn="strong_wolfe"
+        )
+
+        # Closure function required by LBFGS for re-evaluating loss
+        def closure():
             self.optimizer.zero_grad()
             loss = self.loss_func()
             loss.backward()
-            self.optimizer.step()
-            
-            # Saving the loss value to the history list
-            loss_history.append(loss.item()) 
+            loss_history.append(loss.item())
+            return loss
 
-            if (epoch+1) % 10 == 0:
-                print(f'Epoch {epoch+1}/{self.num_epochs}, Loss: {loss.item():.5e}')
+        # Perform the optimization step (runs multiple iterations internally)
+        self.optimizer.step(closure)
+        
+        print(f'[LBFGS] Final Loss: {loss_history[-1]:.5e}')
 
         total_time = time.perf_counter() - start_time
         print(f"Training complete! Total time: {total_time:.2f} seconds")
         
-        return loss_history    
+        # Attempt to save the model state
+        try:
+            os.makedirs('./saved_models', exist_ok=True)
+            self.save_model(loss_history=loss_history)
+        except Exception as e:
+            print(f"Warning: Could not save model: {e}")
+
+        return loss_history
         
     def predict(self, X: torch.Tensor):
         self.network.eval()
@@ -152,13 +271,21 @@ class PINN(nn.Module):
             u_pred = self.network(X)
         return u_pred
     
-    def save_model(self, root="./saved_models", name="pinn_model.pth"):
+    def save_model(self, root="./saved_models", name="pinn_model_KAN.pth", loss_history=None):
         os.makedirs(root, exist_ok=True)
         path = os.path.join(root, name)
         torch.save(self.network.state_dict(), path)
         print(f"Model saved to {path}")
 
-    def load_model(self, path="./saved_models/pinn_model.pth"):
+        # Optionally save loss history if provided
+        if loss_history is not None:
+            try:
+                np.save(os.path.join(root, 'loss_history_KAN.npy'), np.array(loss_history))
+                print(f"Loss history saved to {os.path.join(root, 'loss_history_KAN.npy')}")
+            except Exception as e:
+                print(f"Warning: could not save loss history: {e}")
+
+    def load_model(self, path="./saved_models/pinn_model_KAN.pth"):
         self.network.load_state_dict(torch.load(path))
         print(f"Model loaded from {path}")
     
@@ -167,7 +294,7 @@ class PINN(nn.Module):
         error_u = np.linalg.norm(self.u_star-u_pred,2)/np.linalg.norm(self.u_star,2)
         return error_u
 
-    def plot_solution(self, root="./saved_plots/", name="prediction.png"):
+    def plot_solution(self, root="./saved_plots/", name="prediction_KAN.png"):
         N_x, N_t = 256, 100
         x = np.linspace(self.x_min, self.x_max, N_x)
         t = np.linspace(self.t_min, self.t_max, N_t)
@@ -217,7 +344,7 @@ class PINN(nn.Module):
         plt.show()
         plt.close(fig)
 
-    def plot_loss_history(self, loss_history, root="./saved_plots/", name="loss_history.png"):
+    def plot_loss_history(self, loss_history, root="./saved_plots/", name="loss_history_KAN.png"):
         plt.figure(figsize=(10, 6))
         plt.plot(loss_history, label='Total Loss', color='blue', linewidth=2)
         
