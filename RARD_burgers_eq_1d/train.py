@@ -1,8 +1,8 @@
-from pinn import PINN_Burgers
+from pinn import PINN
 
 def main():
     # adaptive sampling
-    pinn = PINN_Burgers(is_adaptive=True)    
+    pinn = PINN(is_adaptive=True)    
     pinn.train()
     pinn.save_model()
     print(f"N_f: {pinn.N_f}")
