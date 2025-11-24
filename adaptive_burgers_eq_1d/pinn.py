@@ -51,7 +51,7 @@ class FNN(nn.Module):
 # 2. PINN Solver Class
 # ==========================================
 
-class PINN_Burgers:
+class PINN:
     def __init__(self, network= None, device=None, is_adaptive=False):
         """
         I put network as an input so that we can flexibly change architecture of the PINN
