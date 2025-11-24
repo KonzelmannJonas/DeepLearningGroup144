@@ -82,7 +82,10 @@ class PINN:
 
         # Load ground truth data (Wrap in try-except to avoid crash if file missing)
         try:
-            data = scipy.io.loadmat('./data/burgers_shock.mat')
+            # Resolve path relative to this file so running from any cwd works
+            module_dir = os.path.dirname(__file__)
+            data_path = os.path.join(module_dir, 'data', 'burgers_shock.mat')
+            data = scipy.io.loadmat(data_path)
             self.t = data['t'].flatten()[:,None]
             self.x = data['x'].flatten()[:,None]
             self.Exact = np.real(data['usol']).T
@@ -291,6 +294,16 @@ class PINN:
         with torch.no_grad():
             u = self.network(X)
         return u.cpu().numpy()
+    
+    def save_model(self, root="./saved_models", name="pinn_model.pth"):
+        os.makedirs(root, exist_ok=True)
+        path = os.path.join(root, name)
+        torch.save(self.network.state_dict(), path)
+        print(f"Model saved to {path}")
+
+    def load_model(self, path="./saved_models/pinn_model.pth"):
+        self.network.load_state_dict(torch.load(path))
+        print(f"Model loaded from {path}")
 
     def compute_l2_error(self):
         if not hasattr(self, 'has_ground_truth') or not self.has_ground_truth:
