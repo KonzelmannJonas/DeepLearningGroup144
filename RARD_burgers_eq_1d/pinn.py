@@ -9,6 +9,16 @@ import scipy.io
 import time
 import os
 
+import gpu_standardizer 
+
+# 1. Initial Configuration (Must be identical for all team members)
+# Choose a seed and stick with it (e.g., 123)
+DEVICE = gpu_standardizer.setup_unified_environment(seed_val=123)
+
+# 2. Get the "Normalization Factor"
+# Log this number in your GitHub results/Excel sheet
+MY_HARDWARE_SCORE = gpu_standardizer.get_gpu_performance_index()
+
 # Set seeds for reproducibility
 torch.manual_seed(1234)
 np.random.seed(1234)
@@ -205,49 +215,60 @@ class PINN:
 
     def RAR_D_adaptive_sampling(self, k=2, c=0, N_cand=10000, num_add=10):
         """
-        Residual-based Adaptive Refinement (RAR-D).
-        
-        From the paper the results show that the best accuracy is achieved for K=2, c=0
-        Since the purpose of our work is not to investigate the parameters of adaptive sampling,
-        we could let them fixed and not as inputs. 
+        RAR-D with Constant Size (Add N -> Remove N).
         """
-        # Candidate points
+        # --- 1. Candidate Generation ---
         X_cand = np.random.rand(N_cand, 2)
         X_cand[:, 0] = X_cand[:, 0] * (self.x_max - self.x_min) + self.x_min
         X_cand[:, 1] = X_cand[:, 1] * (self.t_max - self.t_min) + self.t_min
         
         X_cand = torch.tensor(X_cand, dtype=torch.float32).to(self.device)
-        X_cand.requires_grad = True
+        # We don't strictly need grad for candidates just to check residuals, 
+        # but pde_residual usually expects it.
+        X_cand.requires_grad = True 
         
-        # Evaluate Residuals (detach because no grad needed for p_distribution)
+        # --- 2. Select Points to ADD (High Error) ---
         f_cand = self.pde_residual(X_cand)
         f_cand_val = torch.abs(f_cand).detach().cpu().numpy().flatten()
         
-        ## RAR_D core
-        # Calculate Error Distribution (PDF) ...
         mean_val = np.mean(np.power(f_cand_val, k))
         err_eq = (np.power(f_cand_val, k) / mean_val) + c
         p_distribution = err_eq / np.sum(err_eq)
         
-        # ... sample points based on distribution ...
         indices = np.random.choice(N_cand, size=num_add, replace=False, p=p_distribution)
-        X_add = X_cand[indices]
-        
-        # ... and add to training set (with DETACH - this "breaks" computations of gradient).
-        # This is needed bcs in adaptive sampling we restart the training at every step, just
-        #  like creating a new network every time we resample.
-        # By using detach we break the connection between different "iterations", so that 
-        # it computes gradient just for the current network (current sampling).
-        # Detach ==> prevent infinite graph growth.        
-        new_X_f = torch.cat((self.X_f.detach(), X_add), dim=0)
-        self.X_f = new_X_f.detach()
-        self.X_f.requires_grad = True
+        X_add = X_cand[indices] # These are the new high-error points
 
+        # --- 3. Temporarily Combine Sets ---
+        # We concatenate first so we can evaluate the "competition" between old and new points
+        X_temp = torch.cat((self.X_f.detach(), X_add.detach()), dim=0)
+        X_temp.requires_grad = True # Enable grad to check residuals on the combined set
+
+        # --- 4. Select Points to REMOVE (Low Error) ---
+        # Evaluate residuals on the WHOLE set (Old + New)
+        f_current = self.pde_residual(X_temp)
+        f_current_val = torch.abs(f_current).detach().cpu().numpy().flatten()
+        
+        # Sort errors: Low -> High
+        sorted_indices = np.argsort(f_current_val)
+        
+        # The first 'num_add' indices are the ones with the lowest error. Remove them.
+        indices_remove = sorted_indices[:num_add]
+        
+        # Create a boolean mask to keep the rest
+        keep_mask = np.ones(X_temp.shape[0], dtype=bool)
+        keep_mask[indices_remove] = False
+        
+        # --- 5. Final Update (The Safe Step) ---
+        # Apply mask, DETACH, and Reset Gradients
+        # This ensures X_f is a fresh "leaf" tensor for the next training cycle
+        self.X_f = X_temp[keep_mask].detach()
+        self.X_f.requires_grad = True
+        
         self.N_f = self.X_f.shape[0]
         
         avg_resid = np.mean(f_cand_val)
-        print(f"[RAR] Added {num_add} points. Total Collocation: {len(self.X_f)}. Avg Residual on candidates: {avg_resid:.5e}")
-
+        print(f"[RAR] Maintained {self.N_f} points (Added {num_add}, Removed {num_add}). Avg Resid: {avg_resid:.5e}")
+    
     def train_RAR(self, rar_iter=5):
         print(f"Starting training on {self.device}...")
         start_time = time.perf_counter()
@@ -296,14 +317,65 @@ class PINN:
         return u.cpu().numpy()
     
     def save_model(self, root="./saved_models", name="pinn_model.pth"):
+        """
+        Saves the model weights AND the current training state (X_f, etc.)
+        so that training can be resumed and plotted later.
+        """
+        if not os.path.isabs(root):
+            # If root is relative, make it relative to the script location
+            module_dir = os.path.dirname(__file__)
+            root = os.path.join(module_dir, root)
+            
         os.makedirs(root, exist_ok=True)
-        path = os.path.join(root, name)
-        torch.save(self.network.state_dict(), path)
-        print(f"Model saved to {path}")
+        full_path = os.path.join(root, name)
+
+        # Create a dictionary containing everything we need to restore
+        checkpoint = {
+            'model_state_dict': self.network.state_dict(),
+            'X_f': self.X_f,    # Save the adaptive collocation points
+            'X_b': self.X_b,    # Save boundary points
+            'X_0': self.X_0,    # Save IC points
+            'U_b': self.U_b,
+            'U_0': self.U_0,
+            'is_adaptive': self.is_adaptive
+        }
+        
+        torch.save(checkpoint, full_path)
+        print(f"Model and training state saved to {full_path}")
 
     def load_model(self, path="./saved_models/pinn_model.pth"):
-        self.network.load_state_dict(torch.load(path))
-        print(f"Model loaded from {path}")
+        """
+        Loads the model weights and restores the training data tensors.
+        """
+        # Handle pathing
+        if not os.path.isabs(path):
+            module_dir = os.path.dirname(__file__)
+            path = os.path.join(module_dir, path)
+
+        # Load checkpoint to the correct device
+        checkpoint = torch.load(path, map_location=self.device)
+        
+        # 1. Restore Network Weights
+        self.network.load_state_dict(checkpoint['model_state_dict'])
+        
+        # 2. Restore Training Data
+        # We must manually move them to device and fix requires_grad for X_f
+        self.X_f = checkpoint['X_f'].to(self.device)
+        self.X_f.requires_grad = True  # CRITICAL: restore gradient tracking for X_f
+        
+        self.X_b = checkpoint['X_b'].to(self.device)
+        self.X_0 = checkpoint['X_0'].to(self.device)
+        self.U_b = checkpoint['U_b'].to(self.device)
+        self.U_0 = checkpoint['U_0'].to(self.device)
+        
+        # Restore adaptive flag if available
+        if 'is_adaptive' in checkpoint:
+            self.is_adaptive = checkpoint['is_adaptive']
+
+        # Update dependent variables
+        self.N_f = self.X_f.shape[0]
+        
+        print(f"Model loaded from {path}. Restored X_f with {self.N_f} points.")
 
     def compute_l2_error(self):
         if not hasattr(self, 'has_ground_truth') or not self.has_ground_truth:
@@ -356,7 +428,9 @@ class PINN:
                 ax_1d.grid(True, alpha=0.3)
                 ax_1d.legend()
 
+        module_dir = os.path.dirname(__file__)
+        root_path = os.path.join(module_dir, 'saved_plots')
         os.makedirs(root, exist_ok=True)
-        fig.savefig(os.path.join(root, name), dpi=100, bbox_inches='tight')
+        fig.savefig(os.path.join(root_path, name), dpi=100, bbox_inches='tight')
         plt.show()
         plt.close(fig)
