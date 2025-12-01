@@ -9,6 +9,7 @@ import scipy.io
 import time
 import os
 
+'''
 import gpu_standardizer 
 
 # 1. Initial Configuration (Must be identical for all team members)
@@ -26,6 +27,8 @@ np.random.seed(1234)
 # ==========================================
 # 1. Network Architectures
 # ==========================================
+
+'''
 
 class FNN(nn.Module):
     """
@@ -81,7 +84,7 @@ class PINN:
         else:
             self.network = network.to(self.device)
 
-        self.num_epochs = 5000 
+        self.num_epochs = 50
 
         # Physical parameters
         self.nu = 0.01 / np.pi
@@ -215,9 +218,57 @@ class PINN:
 
     def RAR_D_adaptive_sampling(self, k=2, c=0, N_cand=10000, num_add=10):
         """
-        RAR-D with Constant Size (Add N -> Remove N).
+        Residual-based Adaptive Refinement (RAR-D).
+        
+        From the paper the results show that the best accuracy is achieved for K=2, c=0
+        Since the purpose of our work is not to investigate the parameters of adaptive sampling,
+        we could let them fixed and not as inputs. 
         """
-        # --- 1. Candidate Generation ---
+        # Candidate points
+        X_cand = np.random.rand(N_cand, 2)
+        X_cand[:, 0] = X_cand[:, 0] * (self.x_max - self.x_min) + self.x_min
+        X_cand[:, 1] = X_cand[:, 1] * (self.t_max - self.t_min) + self.t_min
+        
+        X_cand = torch.tensor(X_cand, dtype=torch.float32).to(self.device)
+        X_cand.requires_grad = True
+        
+        # Evaluate Residuals (detach because no grad needed for p_distribution)
+        f_cand = self.pde_residual(X_cand)
+        f_cand_val = torch.abs(f_cand).detach().cpu().numpy().flatten()
+        
+        ## RAR_D core
+        # Calculate Error Distribution (PDF) ...
+        mean_val = np.mean(np.power(f_cand_val, k))
+        err_eq = (np.power(f_cand_val, k) / mean_val) + c
+        p_distribution = err_eq / np.sum(err_eq)
+        
+        # ... sample points based on distribution ...
+        indices = np.random.choice(N_cand, size=num_add, replace=False, p=p_distribution)
+        X_add = X_cand[indices]
+        
+        # ... and add to training set (with DETACH - this "breaks" computations of gradient).
+        # This is needed bcs in adaptive sampling we restart the training at every step, just
+        #  like creating a new network every time we resample.
+        # By using detach we break the connection between different "iterations", so that 
+        # it computes gradient just for the current network (current sampling).
+        # Detach ==> prevent infinite graph growth.        
+        new_X_f = torch.cat((self.X_f.detach(), X_add), dim=0)
+        self.X_f = new_X_f.detach()
+        self.X_f.requires_grad = True
+
+        self.N_f = self.X_f.shape[0]
+        
+        avg_resid = np.mean(f_cand_val)
+        print(f"[RAR] Added {num_add} points. Total Collocation: {len(self.X_f)}. Avg Residual on candidates: {avg_resid:.5e}")
+
+
+    def RAR_D_adaptive_sampling2(self, k=2, c=0, N_cand=10000, num_add=10):
+        """
+        RAR-D with Constant Size (Add N -> Remove N).
+        This is an attempt to try to improve the performance of the adamptive sampling by adding and REMOVING points.
+        Even by trying the training with different values, the solution is 
+        """
+        # Candidate collocation points generation
         X_cand = np.random.rand(N_cand, 2)
         X_cand[:, 0] = X_cand[:, 0] * (self.x_max - self.x_min) + self.x_min
         X_cand[:, 1] = X_cand[:, 1] * (self.t_max - self.t_min) + self.t_min
@@ -227,7 +278,7 @@ class PINN:
         # but pde_residual usually expects it.
         X_cand.requires_grad = True 
         
-        # --- 2. Select Points to ADD (High Error) ---
+        # Select Points to ADD -- (High Error)
         f_cand = self.pde_residual(X_cand)
         f_cand_val = torch.abs(f_cand).detach().cpu().numpy().flatten()
         
@@ -238,12 +289,11 @@ class PINN:
         indices = np.random.choice(N_cand, size=num_add, replace=False, p=p_distribution)
         X_add = X_cand[indices] # These are the new high-error points
 
-        # --- 3. Temporarily Combine Sets ---
         # We concatenate first so we can evaluate the "competition" between old and new points
         X_temp = torch.cat((self.X_f.detach(), X_add.detach()), dim=0)
         X_temp.requires_grad = True # Enable grad to check residuals on the combined set
 
-        # --- 4. Select Points to REMOVE (Low Error) ---
+        # CHANGE FROM PREVIOUS: Select Points to REMOVE -- (Low Error)
         # Evaluate residuals on the WHOLE set (Old + New)
         f_current = self.pde_residual(X_temp)
         f_current_val = torch.abs(f_current).detach().cpu().numpy().flatten()
@@ -258,7 +308,7 @@ class PINN:
         keep_mask = np.ones(X_temp.shape[0], dtype=bool)
         keep_mask[indices_remove] = False
         
-        # --- 5. Final Update (The Safe Step) ---
+        # Final Update (The Safe Step)
         # Apply mask, DETACH, and Reset Gradients
         # This ensures X_f is a fresh "leaf" tensor for the next training cycle
         self.X_f = X_temp[keep_mask].detach()
@@ -432,5 +482,5 @@ class PINN:
         root_path = os.path.join(module_dir, 'saved_plots')
         os.makedirs(root, exist_ok=True)
         fig.savefig(os.path.join(root_path, name), dpi=100, bbox_inches='tight')
-        plt.show()
+        # plt.show()
         plt.close(fig)
