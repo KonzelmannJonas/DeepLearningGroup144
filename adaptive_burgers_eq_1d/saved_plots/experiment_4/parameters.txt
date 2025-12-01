@@ -1,0 +1,16 @@
+PINN Parameters:
+N_f                              : 7790
+N_0                              : 200
+N_b                              : 200
+is_adaptive                      : True
+num_epochs                       : 10000
+adaptive_interval                : 100
+adaptive_error_tol               : True
+error_tol                        : 0.022417088970541954
+add_point_p                      : 0.25
+remove_point_p                   : 0.125
+point_std                        : 0.3
+N_f_0                            : 10000
+train_time                       : 161.79 seconds
+l2_error                         : 0.05185219272971153
+adaptive_remove_low_error_points : True
