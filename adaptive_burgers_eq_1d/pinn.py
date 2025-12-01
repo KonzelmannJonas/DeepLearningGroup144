@@ -14,7 +14,8 @@ class MLP(nn.Module):
     def __init__(self):
         super().__init__()
         self.activation = nn.Tanh()  # naturally scales network output to [-1, 1]
-        layers = [2, 20, 20, 20, 20, 20, 20, 20, 20, 20, 1]
+        # layers = [2, 20, 20, 20, 20, 20, 20, 20, 20, 20, 1]
+        layers = [2, 50, 50, 50, 50, 1]
         modules = []
         for i in range(len(layers) - 1):
             modules.append(nn.Linear(layers[i], layers[i + 1]))
@@ -34,11 +35,11 @@ class PINN(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.network.to(self.device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
-        self.num_epochs = 10000
+        self.num_epochs = 50 
         self.train_time = 0
 
         # adaptive collocation point control parameters
-        self.is_adaptive = True
+        self.is_adaptive = False
         self.adaptive_interval = 100
         self.add_point_p = 0.1
         self.remove_point_p = 0.3
@@ -415,7 +416,6 @@ class PINN(nn.Module):
 
         fig.savefig(os.path.join(path, name), dpi=300, bbox_inches="tight")
         print(f"Plot saved to {os.path.join(path, name)}")
-        plt.show()
         plt.close(fig)
 
     def save_plot_parameters(self):
