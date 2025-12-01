@@ -15,7 +15,7 @@ module load cuda/12.4.1
 module load python3/3.12.11
 
 ### 2. Activate Environment
-source ../venv/bin/activate
+source /dtu/blackhole/1d/223453/venv/bin/activate
 
 ### 3. Safety Check
 echo "Running on host: $(hostname)"
