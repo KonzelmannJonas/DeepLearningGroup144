@@ -35,7 +35,7 @@ class PINN(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.network.to(self.device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
-        self.num_epochs = 50 
+        self.num_epochs = 5000 
         self.train_time = 0
 
         # adaptive collocation point control parameters
@@ -164,11 +164,6 @@ class PINN(nn.Module):
 
         if self.adaptive_error_tol:
             self.error_tol = np.median(error)
-
-        # print(f"Max residual error: {np.max(error):.6e}")
-        # print(f"Min residual error: {np.min(error):.6e}")
-        # print(f"Mean residual error: {np.mean(error):.6e}")
-        # print(f"Median residual error: {np.median(error):.6e}")
 
         high_error_indices = np.where(error > self.error_tol)[0]
         low_error_indices = np.where(error <= self.error_tol)[0]
