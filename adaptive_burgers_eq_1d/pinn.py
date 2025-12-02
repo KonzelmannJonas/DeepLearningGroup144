@@ -39,13 +39,13 @@ class PINN(nn.Module):
         self.train_time = 0
 
         # adaptive collocation point control parameters
-        self.is_adaptive = False
+        self.is_adaptive = True
         self.adaptive_interval = 100
-        self.add_point_p = 0.1
-        self.remove_point_p = 0.3
-        self.point_std = 0.3
+        self.add_point_p = 0.4
+        self.remove_point_p = 0.25
+        self.point_std = 0.15
         self.error_tol = 1e-3  # make lower
-        self.adaptive_error_tol = False
+        self.adaptive_error_tol = True
         self.adaptive_remove_low_error_points = True
 
         self.N_f_0 = 10000  # initial number of collocation points
