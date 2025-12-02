@@ -196,7 +196,7 @@ class PINN:
         total_time = time.perf_counter() - start_time
         print(f"Standard Training complete! Total time: {total_time:.2f} seconds")
 
-    def RAR_D_adaptive_sampling(self, k=2, c=0, N_cand=10000, num_add=10):
+    def RAR_D_adaptive_sampling2(self, k=2, c=0, N_cand=10000, num_add=10):
         """
         Residual-based Adaptive Refinement (RAR-D).
         
@@ -242,7 +242,7 @@ class PINN:
         print(f"[RAR] Added {num_add} points. Total Collocation: {len(self.X_f)}. Avg Residual on candidates: {avg_resid:.5e}")
 
 
-    def RAR_D_adaptive_sampling2(self, k=2, c=0, N_cand=10000, num_add=10):
+    def RAR_D_adaptive_sampling(self, k=2, c=0, N_cand=10000, num_add=10):
         """
         RAR-D with Constant Size (Add N -> Remove N).
         This is an attempt to try to improve the performance of the adamptive sampling by adding and REMOVING points.
