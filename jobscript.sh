@@ -1,6 +1,6 @@
 #!/bin/sh
 ### --- FAST TRACK Configuration ---
-#BSUB -q gpua100 	# KEY CHANGE: Using A100 queue (much less crowded)
+#BSUB -q gpuv100 	# KEY CHANGE: Using A100 queue (much less crowded)
 #BSUB -J PINN_KAN       # Job Name
 #BSUB -n 4                   # 4 CPU cores
 #BSUB -gpu "num=1:mode=exclusive_process" # 1 GPU
@@ -23,4 +23,4 @@ nvidia-smi
 
 ### 4. EXECUTE (Short version for testing)
 # Reducing epochs to finish in less than 15 minutes
-python3 ./adaptive_burgers_eq_1d/train.py
+python3 greedy_adaptive_burgers_eq_1d/train.py
