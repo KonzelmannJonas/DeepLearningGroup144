@@ -33,17 +33,6 @@ class FNN(nn.Module):
             x = self.activation(layer(x))
         return self.layers[-1](x)
 
-# class KAN(nn.Module):
-#     def __init__(self, ...):
-#         ...
-#     def forward(self, x):
-#         ...
-
-
-# ==========================================
-# 2. PINN Solver Class
-# ==========================================
-
 class PINN:
     def __init__(self, network= None, device=None, is_adaptive=False):
         """
@@ -241,13 +230,16 @@ class PINN:
         avg_resid = np.mean(f_cand_val)
         print(f"[RAR] Added {num_add} points. Total Collocation: {len(self.X_f)}. Avg Residual on candidates: {avg_resid:.5e}")
 
+    """
+    # failed experiment of adding AND removing points - in saved plot we can see how inaccurate 
+    # the result is
 
     def RAR_D_adaptive_sampling2(self, k=2, c=0, N_cand=10000, num_add=10):
-        """
-        RAR-D with Constant Size (Add N -> Remove N).
-        This is an attempt to try to improve the performance of the adamptive sampling by adding and REMOVING points.
-        Even by trying the training with different values, the solution is 
-        """
+    
+        #RAR-D with Constant Size (Add N -> Remove N).
+        #This is an attempt to try to improve the performance of the adamptive sampling by adding and REMOVING points.
+        #Even by trying the training with different values, the solution is 
+
         # Candidate collocation points generation
         X_cand = np.random.rand(N_cand, 2)
         X_cand[:, 0] = X_cand[:, 0] * (self.x_max - self.x_min) + self.x_min
@@ -298,7 +290,7 @@ class PINN:
         
         avg_resid = np.mean(f_cand_val)
         print(f"[RAR] Maintained {self.N_f} points (Added {num_add}, Removed {num_add}). Avg Resid: {avg_resid:.5e}")
-    
+"""
     def train_RAR(self, rar_iter=5):
         print(f"Starting training on {self.device}...")
         start_time = time.perf_counter()
