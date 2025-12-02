@@ -1,7 +1,7 @@
 #!/bin/sh
 ### --- FAST TRACK Configuration ---
-#BSUB -q gpua100             # KEY CHANGE: Using A100 queue (much less crowded)
-#BSUB -J PINN_KAN_Fast       # Job Name
+#BSUB -q gpuv100 	# KEY CHANGE: Using A100 queue (much less crowded)
+#BSUB -J PINN_KAN       # Job Name
 #BSUB -n 4                   # 4 CPU cores
 #BSUB -gpu "num=1:mode=exclusive_process" # 1 GPU
 #BSUB -W 00:15               # KEY CHANGE: Only 15 minutes (max priority)
