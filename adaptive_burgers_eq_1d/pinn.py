@@ -95,7 +95,12 @@ class PINN(nn.Module):
         self.ub_right = torch.tensor(ub_right, dtype=torch.float32).to(self.device)
 
         # load ground truth data
-        data = scipy.io.loadmat("./data/burgers_shock.mat")
+        # Get the directory where the current file is located
+        self.current_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Use it to construct paths relative to the file
+        data_path = os.path.join(self.current_dir, "data", "burgers_shock.mat")
+        data = scipy.io.loadmat(data_path)
 
         self.t = data["t"].flatten()[:, None]
         self.x = data["x"].flatten()[:, None]
@@ -285,7 +290,7 @@ class PINN(nn.Module):
         return error_u
 
     def create_experiment_folder(self):
-        base_folder = "./saved_plots"
+        base_folder = os.path.join(self.current_dir, "saved_plots")
         experiment_name = "experiment"
 
         # Start with the base experiment folder
