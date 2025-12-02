@@ -1,0 +1,2 @@
+Training complete! Total time: 180.28 seconds
+relative L2 error: 7.157799e-02
