@@ -14,7 +14,6 @@ class MLP(nn.Module):
     def __init__(self):
         super().__init__()
         self.activation = nn.Tanh()  # naturally scales network output to [-1, 1]
-        # layers = [2, 20, 20, 20, 20, 20, 20, 20, 20, 20, 1]
         layers = [2, 50, 50, 50, 50, 1]
         modules = []
         for i in range(len(layers) - 1):
@@ -39,13 +38,13 @@ class PINN(nn.Module):
         self.train_time = 0
 
         # adaptive collocation point control parameters
-        self.is_adaptive = True
+        self.is_adaptive = False
         self.adaptive_interval = 100
         self.add_point_p = 0.4
         self.remove_point_p = 0.25
         self.point_std = 0.15
         self.error_tol = 1e-3  # make lower
-        self.adaptive_error_tol = True
+        self.adaptive_error_tol = False
         self.adaptive_remove_low_error_points = False
 
         self.N_f_0 = 10000  # initial number of collocation points
@@ -353,7 +352,7 @@ class PINN(nn.Module):
         print(f"Parameters saved to {parameter_file}")
 
     def plot_solution(
-        self, path, overlay_collocation_points=True, name="prediction.png"
+        self, path, overlay_collocation_points=False, name="prediction.png"
     ):
         N_x, N_t = 256, 100
         x = np.linspace(self.x_min, self.x_max, N_x)
