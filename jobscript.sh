@@ -1,11 +1,7 @@
 #!/bin/sh
 ### --- FAST TRACK Configuration ---
 #BSUB -q gpuv100        # KEY CHANGE: Using A100 queue (much less crowded)
-<<<<<<< HEAD:RARD_burgers_eq_1d/jobscript.sh
-#BSUB -J PINN_KAN       # Job Name
-=======
 #BSUB -J vale_adaptive       # Job Name
->>>>>>> f786e0b17ed5f521e41d6a50436328efdd70853c:jobscript.sh
 #BSUB -n 4                   # 4 CPU cores
 #BSUB -gpu "num=1:mode=exclusive_process" # 1 GPU
 #BSUB -W 00:15               # KEY CHANGE: Only 15 minutes (max priority)
@@ -19,11 +15,7 @@ module load cuda/12.4.1
 module load python3/3.12.11
 
 ### 2. Activate Environment
-<<<<<<< HEAD:RARD_burgers_eq_1d/jobscript.sh
-source /zhome/3b/0/221496/testvenv/bin/activate
-=======
 source ../testvenv/bin/activate
->>>>>>> f786e0b17ed5f521e41d6a50436328efdd70853c:jobscript.sh
 
 ### 3. Safety Check
 echo "Running on host: $(hostname)"
@@ -32,10 +24,4 @@ nvidia-smi
 ### 4. EXECUTE (Short version for testing)
 
 # Reducing epochs to finish in less than 15 minutes
-<<<<<<< HEAD:RARD_burgers_eq_1d/jobscript.sh
-python3 greedy_adaptive_burgers_eq_1d/train.py
-=======
 python3 ~/DeepLearningGroup144/RARD_burgers_eq_1d/train.py
-
-
->>>>>>> f786e0b17ed5f521e41d6a50436328efdd70853c:jobscript.sh
