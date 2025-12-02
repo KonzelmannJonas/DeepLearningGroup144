@@ -1,7 +1,7 @@
 #!/bin/sh
 ### --- FAST TRACK Configuration ---
-#BSUB -q gpuv100             # KEY CHANGE
-#BSUB -J PINN_adaptive       # Job Name
+#BSUB -q gpuv100        # KEY CHANGE: Using A100 queue (much less crowded)
+#BSUB -J vale_adaptive       # Job Name
 #BSUB -n 4                   # 4 CPU cores
 #BSUB -gpu "num=1:mode=exclusive_process" # 1 GPU
 #BSUB -W 00:15               # KEY CHANGE: Only 15 minutes (max priority)
@@ -15,12 +15,15 @@ module load cuda/12.4.1
 module load python3/3.12.11
 
 ### 2. Activate Environment
-source /dtu/blackhole/1d/223453/venv/bin/activate
+source ../testvenv/bin/activate
 
 ### 3. Safety Check
 echo "Running on host: $(hostname)"
 nvidia-smi
 
 ### 4. EXECUTE (Short version for testing)
+
 # Reducing epochs to finish in less than 15 minutes
-python3 train.py
+python3 ~/DeepLearningGroup144/RARD_burgers_eq_1d/train.py
+
+
