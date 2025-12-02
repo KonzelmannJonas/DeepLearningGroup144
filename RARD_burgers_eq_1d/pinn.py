@@ -64,7 +64,7 @@ class PINN:
         else:
             self.network = network.to(self.device)
 
-        self.num_epochs = 50
+        self.num_epochs = 5000
 
         # Physical parameters
         self.nu = 0.01 / np.pi
