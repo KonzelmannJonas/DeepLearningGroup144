@@ -46,7 +46,7 @@ class PINN(nn.Module):
         self.point_std = 0.15
         self.error_tol = 1e-3  # make lower
         self.adaptive_error_tol = True
-        self.adaptive_remove_low_error_points = True
+        self.adaptive_remove_low_error_points = False
 
         self.N_f_0 = 10000  # initial number of collocation points
 
