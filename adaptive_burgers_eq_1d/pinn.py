@@ -259,7 +259,8 @@ class PINN(nn.Module):
             u_pred = self.network(X)
         return u_pred
 
-    def save_model(self, root="./saved_models", name="pinn_model.pth"):
+    def save_model(self, root="saved_models", name="pinn_model.pth"):
+        root = os.path.join(self.current_dir, root)
         os.makedirs(root, exist_ok=True)
         path = os.path.join(root, name)
         checkpoint = {
@@ -270,7 +271,8 @@ class PINN(nn.Module):
         torch.save(checkpoint, path)
         print(f"Model saved to {path}")
 
-    def load_model(self, path="./saved_models/pinn_model.pth"):
+    def load_model(self, path="saved_models/pinn_model.pth"):
+        path = os.path.join(self.current_dir, path)
         checkpoint = torch.load(path)
         self.network.load_state_dict(checkpoint["model_state"])
         self.N_f = checkpoint["N_f"]
@@ -290,7 +292,7 @@ class PINN(nn.Module):
         return error_u
 
     def create_experiment_folder(self):
-        base_folder = os.path.join(self.current_dir, "saved_plots")
+        base_folder = os.path.join(self.current_dir, "saved_plots", "final_experiments")
         experiment_name = "experiment"
 
         # Start with the base experiment folder
