@@ -9,26 +9,6 @@ import scipy.io
 import time
 import os
 
-'''
-import gpu_standardizer 
-
-# 1. Initial Configuration (Must be identical for all team members)
-# Choose a seed and stick with it (e.g., 123)
-DEVICE = gpu_standardizer.setup_unified_environment(seed_val=123)
-
-# 2. Get the "Normalization Factor"
-# Log this number in your GitHub results/Excel sheet
-MY_HARDWARE_SCORE = gpu_standardizer.get_gpu_performance_index()
-
-# Set seeds for reproducibility
-torch.manual_seed(1234)
-np.random.seed(1234)
-
-# ==========================================
-# 1. Network Architectures
-# ==========================================
-
-'''
 
 class FNN(nn.Module):
     """
