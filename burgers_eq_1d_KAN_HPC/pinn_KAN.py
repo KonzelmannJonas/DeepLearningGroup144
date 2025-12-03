@@ -1,3 +1,19 @@
+"""
+Physics-Informed Neural Network (PINN) with Kolmogorov-Arnold Networks (KAN) adaptation to HPC.
+
+This module implements a KAN-based PINN to solve the 1D Viscous Burgers' equation:
+    u_t + u * u_x - nu * u_xx = 0
+
+Key Features:
+- Architecture: KAN [2, 5, 5, 5, 1] with cubic B-splines (k=3) and grid size G=5.
+- Training: Hybrid optimization strategy (Adam for exploration + LBFGS for high-precision fine-tuning).
+- Adaptation: Dynamic grid updates based on activation distribution during the initial training phase.
+- Integration: Ready for High-Performance Computing (HPC) workflows via argparse.
+
+Author: Group 144 / [Your Name]
+Date: 2025
+"""
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -12,18 +28,25 @@ import matplotlib.gridspec as gridspec
 from kan_lib.KANLayer import KANLayer
     
 class KAN(nn.Module):
+    """
+    Kolmogorov-Arnold Network (KAN) Architecture.
+    
+    Replaces standard MLPs with learnable B-spline activation functions on edges.
+    """
     def __init__(self):
         super().__init__()
         # Architecture: [Input, Hidden, Hidden, Hidden, Output]
+        # Input (2): (x, t)
+        # Output (1): u(x,t)
         layers = [2, 5, 5, 5, 1]
 
         # KAN-specific parameters
-        grid_size = 5  # Defines the spline resolution.
-        k = 3          # Polynomial order (cubic)
+        grid_size = 5  # Defines the spline resolution (G).
+        k = 3          # Polynomial order (cubic B-splines).
 
         self.layers = nn.ModuleList()
 
-        # Create the layers
+        # Create the layers dynamically
         for i in range(len(layers) - 1):
             in_dim = layers[i]
             out_dim = layers[i + 1]
@@ -37,13 +60,17 @@ class KAN(nn.Module):
     def forward(self, x):
         # The loop is simpler now:
         for layer in self.layers:
-            # KANLayer returns 4 values; we only want the first (x)
-            # DO NOT apply tanh here — the layer is already non-linear.
+            # KANLayer returns 4 values; we only want the first (x), which is the transformed activation.
+            # DO NOT apply tanh here — the layer itself contains the non-linearity (splines).
             x, _, _, _ = layer(x)
             
         return x
 
 class PINN(nn.Module):
+    """
+    Physics-Informed Neural Network (PINN) wrapper for the KAN model.
+    Encapsulates the physics (residuals), data loading, and training loop.
+    """
     # MODIFICATION: Add arguments to the constructor to control epochs externally
     def __init__(self, adam_epochs=2000, lbfgs_epochs=3000):
         super(PINN, self).__init__()
@@ -131,6 +158,10 @@ class PINN(nn.Module):
             print(f"Warning: Could not load ./data/burgers_shock.mat: {e}")
         
     def pde_residual(self, X):
+        """
+        Computes the physics residual (Burgers' Equation) using AutoGrad.
+        Residual: f = u_t + u*u_x - nu*u_xx
+        """
         x = X[:, 0:1] 
         t = X[:, 1:2] 
         u = self.network(torch.cat([x, t], dim=1)) # network output u(x,t)
@@ -143,7 +174,9 @@ class PINN(nn.Module):
         return f
 
     def loss_func(self):
-
+        """
+        Defines the total loss function: Physics Loss + IC Loss + BC Loss.
+        """
         # PDE residual loss
         f_pred = self.pde_residual(self.X_f)
         loss_f = torch.mean(f_pred**2)
@@ -161,6 +194,11 @@ class PINN(nn.Module):
         return loss
 
     def train(self):
+        """
+        Main training loop.
+        Phase 1: Adam optimizer with grid adaptation.
+        Phase 2: LBFGS optimizer for fine-tuning.
+        """
         print("Starting training...")
         start_time = time.perf_counter()
         loss_history = []
@@ -256,6 +294,7 @@ class PINN(nn.Module):
         print(f"Model loaded from {path}")
     
     def compute_l2_error(self):
+        """ Computes relative L2 error against ground truth. """
         u_pred = self.predict(self.X_star)
         
         # MODIFICATION: ADDED .cpu() before .numpy()
@@ -281,6 +320,7 @@ class PINN(nn.Module):
         print(f"Metrics saved to {file_path}")
 
     def plot_solution(self, root="./saved_plots/", name="prediction_KAN.png"):
+        """ Generates visualization plots for the solution at snapshots. """
         N_x, N_t = 256, 100
         x = np.linspace(self.x_min, self.x_max, N_x)
         t = np.linspace(self.t_min, self.t_max, N_t)

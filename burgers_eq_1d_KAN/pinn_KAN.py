@@ -1,3 +1,19 @@
+"""
+Physics-Informed Neural Network (PINN) using Kolmogorov-Arnold Networks (KAN).
+
+This script solves the 1D Viscous Burgers' equation:
+    u_t + u*u_x - nu*u_xx = 0
+    
+Methodology:
+    - Architecture: KAN with architecture [2, 5, 5, 5, 1].
+    - Basis: B-splines (k=3) with learnable coefficients on edges.
+    - Optimizer: Two-phase strategy (Adam with grid adaptation -> LBFGS for fine-tuning).
+    - Data: Compares against 'burgers_shock.mat' ground truth.
+
+Author: Group 144
+Date: 2025
+"""
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,82 +27,101 @@ import matplotlib.gridspec as gridspec
 from kan_lib.KANLayer import KANLayer
     
 class KAN(nn.Module):
+    """
+    Kolmogorov-Arnold Network architecture.
+    Unlike MLPs, activation functions are learned on edges (weights).
+    """
     def __init__(self):
         super().__init__()
-        # Architecture: [Input, Hidden, Hidden, Hidden, Output]
+        # Architecture definition: [Input, Hidden, Hidden, Hidden, Output]
+        # Input is 2 (x, t), Output is 1 (u)
         layers = [2, 5, 5, 5, 1]
 
         # KAN-specific parameters
-        grid_size = 10  # Defines the spline resolution.
-        k = 3          # Polynomial order (cubic)
+        grid_size = 5  # Defines the spline resolution (number of intervals).
+        k = 3          # Polynomial order (cubic B-splines)
 
         self.layers = nn.ModuleList()
 
-        # Create the layers
+        # Construct the KAN layers dynamically
         for i in range(len(layers) - 1):
             in_dim = layers[i]
             out_dim = layers[i + 1]
 
-            # Instantiate the KANLayer
-            # Pass 'num' (grid size) and 'k' (spline order)
+            # Instantiate the KANLayer from the custom library
+            # We pass 'num' (grid size) and 'k' (spline order)
             self.layers.append(
                 KANLayer(in_dim, out_dim, num=grid_size, k=k)
             )
 
     def forward(self, x):
-        # The loop is simpler now:
+        # Forward pass through KAN layers
         for layer in self.layers:
-            # KANLayer returns 4 values; we only want the first (x)
-            # DO NOT apply tanh here — the layer is already non-linear.
+            # KANLayer returns a tuple of 4 values; we only need the transformed features (x)
+            # Note: No explicit non-linearity (e.g., tanh/relu) is needed here 
+            # because the layer itself contains the learnable non-linearities (splines).
             x, _, _, _ = layer(x)
             
         return x
 
 class PINN(nn.Module):
+    """
+    Physics-Informed Neural Network class wrapping the KAN.
+    """
     def __init__(self):
         super(PINN, self).__init__()
-        # set up neural network parameters
+        
+        # --- 1. Network Setup ---
         self.network = KAN()
-        #self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Device configuration (defaults to CPU as per code)
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device("cpu")
         self.network.to(self.device)
-        self.optimizer_adam = torch.optim.Adam(self.network.parameters(), lr=0.01) # Higher LR for KAN
+        
+        # Optimizers
+        # Adam is used for the initial phase (exploration and grid adaptation)
+        self.optimizer_adam = torch.optim.Adam(self.network.parameters(), lr=0.01) # Higher LR for KAN is often preferred
+        # LBFGS is used for the fine-tuning phase (high precision)
         self.optimizer = torch.optim.LBFGS(self.network.parameters(), lr=1.0)
         self.num_epochs = 2000
 
-        # set up experiment parameters
+        # --- 2. Physics & Domain Setup ---
         torch.set_default_dtype(torch.float32)
-        # spatial and temporal domain boundaries
+        
+        # Spatial (x) and temporal (t) domain boundaries
         self.x_min, self.x_max = -1.0, 1.0
         self.t_min, self.t_max = 0.0, 1.0
 
-        #viscosity coefficient
+        # Viscosity coefficient for Burgers' eq
         self.nu = 0.01 / np.pi
 
-        # collocation points
-        self.N_f = 10000
-        self.N_0 = 200
-        self.N_b = 200
+        # Number of points
+        self.N_f = 10000 # Collocation points (PDE residual)
+        self.N_0 = 200   # Initial condition points
+        self.N_b = 200   # Boundary condition points
 
-        # Initial and boundary conditions
+        # --- 3. Data Generation ---
+        # Generate random collocation points inside the domain
         X_f = np.random.rand(self.N_f, 2)
-        X_f[:, 0] = X_f[:, 0] * (self.x_max - self.x_min) + self.x_min  # x in [-1, 1]
-        X_f[:, 1] = X_f[:, 1] * (self.t_max - self.t_min) + self.t_min    # t in [0, 1]
+        X_f[:, 0] = X_f[:, 0] * (self.x_max - self.x_min) + self.x_min  # Scale x to [-1, 1]
+        X_f[:, 1] = X_f[:, 1] * (self.t_max - self.t_min) + self.t_min    # Scale t to [0, 1]
 
-        # Initial condition on velocity: u(x, 0) = -sin(pi * x)
+        # Initial condition (IC): t = 0, u(x, 0) = -sin(pi * x)
         x0 = np.linspace(self.x_min, self.x_max, self.N_0)[:, None]
         t0 = np.zeros_like(x0)
         u0 = -np.sin(np.pi * x0)
 
-        # Boundary conditions: u(-1, t) = 0, u(1, t) = 0
+        # Boundary conditions (BC): x = -1 and x = 1, u = 0
         tb = np.linspace(self.t_min, self.t_max, self.N_b)[:, None]
         xb_left = np.ones_like(tb) * self.x_min
         xb_right = np.ones_like(tb) * self.x_max
         ub_left = np.zeros_like(tb)
         ub_right = np.zeros_like(tb)
 
-        # Convert to PyTorch tensors
-        self.X_f = torch.tensor(X_f, dtype=torch.float32, requires_grad=True) # enable gradients for collocation points
+        # --- 4. Tensor Conversion ---
+        # Collocation points require gradients for AutoGrad (computing derivatives)
+        self.X_f = torch.tensor(X_f, dtype=torch.float32, requires_grad=True) 
         self.x0 = torch.tensor(x0, dtype=torch.float32)
         self.t0 = torch.tensor(t0, dtype=torch.float32)
         self.u0 = torch.tensor(u0, dtype=torch.float32)
@@ -96,7 +131,8 @@ class PINN(nn.Module):
         self.ub_left = torch.tensor(ub_left, dtype=torch.float32)
         self.ub_right = torch.tensor(ub_right, dtype=torch.float32)
         
-        # load ground truth data
+        # --- 5. Ground Truth Data Loading ---
+        # Used for validation and error calculation
         data = scipy.io.loadmat('./data/burgers_shock.mat')
         
         self.t = data['t'].flatten()[:,None]
@@ -108,41 +144,51 @@ class PINN(nn.Module):
         X_star = np.hstack((X.flatten()[:,None], T.flatten()[:,None]))
         u_star = self.Exact.flatten()[:,None]
 
-        # convert to pytorch tensors
+        # Move validation data to the configured device
         self.X_star = torch.tensor(X_star, dtype=torch.float32).to(self.device)
         self.u_star = torch.tensor(u_star, dtype=torch.float32).to(self.device)
         
     def pde_residual(self, X):
+        """
+        Computes the residual of the viscous Burgers' equation using AutoGrad.
+        Equation: u_t + u*u_x - nu*u_xx = 0
+        """
         x = X[:, 0:1] 
         t = X[:, 1:2] 
-        u = self.network(torch.cat([x, t], dim=1)) # network output u(x,t)
+        u = self.network(torch.cat([x, t], dim=1)) # Forward pass to get u(x,t)
 
+        # Compute gradients (first and second order)
         u_x = autograd.grad(u, x, grad_outputs=torch.ones_like(u), create_graph=True, retain_graph=True)[0]
         u_t = autograd.grad(u, t, grad_outputs=torch.ones_like(u), create_graph=True, retain_graph=True)[0]
         u_xx = autograd.grad(u_x, x, grad_outputs=torch.ones_like(u_x), create_graph=True, retain_graph=True)[0]
 
-        f = u_t + u * u_x - self.nu * u_xx  # Burgers' equation residual
+        # Physics residual
+        f = u_t + u * u_x - self.nu * u_xx  
         return f
 
     def loss_func(self):
-
-        # PDE residual loss
+        """
+        Computes the total loss: Physics Loss + IC Loss + BC Loss.
+        """
+        # 1. PDE residual loss (Physics)
         f_pred = self.pde_residual(self.X_f)
         loss_f = torch.mean(f_pred**2)
 
-        # Initial condition loss
+        # 2. Initial condition loss (Data)
         u0_pred = self.network(torch.cat([self.x0, self.t0], dim=1))
         loss_0 = torch.mean((u0_pred - self.u0)**2)
 
-        # Boundary condition loss
+        # 3. Boundary condition loss (Data)
         u_left_pred = self.network(torch.cat([self.xb_left, self.tb], dim=1))
         u_right_pred = self.network(torch.cat([self.xb_right, self.tb], dim=1))
         loss_b = torch.mean(u_left_pred**2) + torch.mean(u_right_pred**2)
 
+        # Total Loss
         loss = loss_f + loss_0 + loss_b
         return loss
 
 
+    # [Deprecated/Legacy training loop commented out for reference]
     # def train(self):
     #     print("Starting training...")
     #     start_time = time.perf_counter()
@@ -199,6 +245,11 @@ class PINN(nn.Module):
     #     return loss_history    
 
     def train(self):
+        """
+        Executes the two-phase training strategy:
+        1. Adam Optimizer: Fast convergence + Grid Adaptation.
+        2. LBFGS Optimizer: Fine-tuning for low residuals.
+        """
         print("Starting training...")
         start_time = time.perf_counter()
         loss_history = []
@@ -215,7 +266,9 @@ class PINN(nn.Module):
                 with torch.no_grad():
                     x_input = self.X_f 
                     for layer in self.network.layers:
+                        # Update the spline grid based on input distribution
                         layer.update_grid_from_samples(x_input)
+                        # Push activations to the next layer
                         x_input, _, _, _ = layer(x_input) # Forward pass for next layer
 
             self.optimizer_adam.zero_grad()
@@ -266,12 +319,14 @@ class PINN(nn.Module):
         return loss_history
         
     def predict(self, X: torch.Tensor):
+        """Evaluation mode for inference"""
         self.network.eval()
         with torch.no_grad():
             u_pred = self.network(X)
         return u_pred
     
     def save_model(self, root="./saved_models", name="pinn_model_KAN.pth", loss_history=None):
+        """Utility to save model weights and loss history"""
         os.makedirs(root, exist_ok=True)
         path = os.path.join(root, name)
         torch.save(self.network.state_dict(), path)
@@ -286,15 +341,18 @@ class PINN(nn.Module):
                 print(f"Warning: could not save loss history: {e}")
 
     def load_model(self, path="./saved_models/pinn_model_KAN.pth"):
+        """Utility to load model weights"""
         self.network.load_state_dict(torch.load(path))
         print(f"Model loaded from {path}")
     
     def compute_l2_error(self):
+        """Calculates Relative L2 Error against ground truth"""
         u_pred = self.predict(self.X_star)
         error_u = np.linalg.norm(self.u_star-u_pred,2)/np.linalg.norm(self.u_star,2)
         return error_u
 
     def plot_solution(self, root="./saved_plots/", name="prediction_KAN.png"):
+        """Generates snapshots of the solution at different time steps"""
         N_x, N_t = 256, 100
         x = np.linspace(self.x_min, self.x_max, N_x)
         t = np.linspace(self.t_min, self.t_max, N_t)
@@ -345,6 +403,7 @@ class PINN(nn.Module):
         plt.close(fig)
 
     def plot_loss_history(self, loss_history, root="./saved_plots/", name="loss_history_KAN.png"):
+        """Plots the training loss curve"""
         plt.figure(figsize=(10, 6))
         plt.plot(loss_history, label='Total Loss', color='blue', linewidth=2)
         

@@ -1,0 +1,14 @@
+Run: Run_Final_KAN        | Date: 2025-12-01 11:28:35 | Adam: 2000 | LBFGS: 3000 | L2 Error: 8.76121e-02 | Time: 291.79s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-01 11:48:53 | Adam: 2000 | LBFGS: 3000 | L2 Error: 2.50961e-01 | Time: 271.09s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-01 16:32:30 | Adam: 2000 | LBFGS: 3000 | L2 Error: 4.85752e-01 | Time: 375.47s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-01 19:31:59 | Adam: 1000 | LBFGS: 4000 | L2 Error: 1.40490e-01 | Time: 408.67s | Device: cuda <-winner
+Run: Run_Final_KAN        | Date: 2025-12-01 20:00:09 | Adam: 500 | LBFGS: 4500 | L2 Error: 3.22449e-01 | Time: 226.44s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-01 20:36:59 | Adam: 750 | LBFGS: 4250 | L2 Error: 2.40168e-01 | Time: 315.66s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-01 21:27:14 | Adam: 3000 | LBFGS: 2000 | L2 Error: 1.75830e-01 | Time: 405.34s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-02 21:04:25 | Adam: 1000 | LBFGS: 4000 | L2 Error: 3.64126e-01 | Time: 180.23s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-02 23:09:59 | Adam: 1000 | LBFGS: 4000 | L2 Error: 2.36687e-01 | Time: 162.10s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-02 23:25:58 | Adam: 1000 | LBFGS: 4000 | L2 Error: 1.58555e-01 | Time: 402.96s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-03 00:28:48 | Adam: 1000 | LBFGS: 4000 | L2 Error: 2.79356e-01 | Time: 255.33s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-03 08:39:46 | Adam: 1500 | LBFGS: 3500 | L2 Error: 2.32207e-01 | Time: 448.80s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-03 09:00:38 | Adam: 1500 | LBFGS: 3500 | L2 Error: 1.25158e-01 | Time: 423.73s | Device: cuda
+Run: Run_Final_KAN        | Date: 2025-12-03 09:52:22 | Adam: 1500 | LBFGS: 3500 | L2 Error: 3.83156e-01 | Time: 438.28s | Device: cuda

@@ -1,0 +1,119 @@
+Running on host: n-62-20-14
+GPU available:
+Mon Dec  1 19:25:05 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.105.08             Driver Version: 580.105.08     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla V100-PCIE-32GB           On  |   00000000:58:00.0 Off |                    0 |
+| N/A   31C    P0             26W /  250W |       0MiB /  32768MiB |      0%   E. Process |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+--- Iniciant entrenament: Run_Final_KAN ---
+--> Initializing PINN on device: cuda
+Starting training...
+--> Phase 1: Adam Optimizer (1000 epochs)
+[Adam] Epoch 100/1000, Loss: 4.62322e-01
+[Adam] Epoch 200/1000, Loss: 1.74589e-01
+[Adam] Epoch 300/1000, Loss: 9.53528e-02
+[Adam] Epoch 400/1000, Loss: 8.83933e-02
+[Adam] Epoch 500/1000, Loss: 8.60968e-02
+[Adam] Epoch 600/1000, Loss: 7.94327e-02
+[Adam] Epoch 700/1000, Loss: 7.19787e-02
+[Adam] Epoch 800/1000, Loss: 5.88690e-02
+[Adam] Epoch 900/1000, Loss: 4.49348e-02
+[Adam] Epoch 1000/1000, Loss: 5.31463e-02
+--> Phase 2: LBFGS Optimizer (4000 iterations)
+[LBFGS] Final Loss: 3.05713e-03
+Training complete! Total time: 408.67 seconds
+Model saved to ./saved_models/pinn_model_KAN.pth
+Loss history saved to ./saved_models/loss_history_KAN.npy
+Final L2 Error: 1.40490e-01
+Metrics saved to ./results/experiment_summary.txt
+Model saved to ./saved_models/Run_Final_KAN_model.pth
+Loss history saved to ./saved_models/loss_history_KAN.npy
+Entrenament finalitzat i guardat.
+
+------------------------------------------------------------
+Sender: LSF System <lsfadmin@hpc.dtu.dk>
+Subject: Job 27242712: <PINN_KAN_Oriol> in cluster <dcc> Done
+
+Job <PINN_KAN_Oriol> was submitted from host <hpclogin1> by user <s253168> in cluster <dcc> at Mon Dec  1 19:21:16 2025
+Job was executed on host(s) <4*n-62-20-14>, in queue <gpuv100>, as user <s253168> in cluster <dcc> at Mon Dec  1 19:25:03 2025
+</zhome/de/c/223411> was used as the home directory.
+</dtu/blackhole/13/223411/group144/kan_hpc/DeepLearningGroup144/burgers_eq_1d_KAN_HPC> was used as the working directory.
+Started at Mon Dec  1 19:25:03 2025
+Terminated at Mon Dec  1 19:32:00 2025
+Results reported at Mon Dec  1 19:32:00 2025
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#!/bin/sh
+### --- Job Configuration ---
+#BSUB -q gpuv100             # V100 GPU queue (very fast)
+#BSUB -J PINN_KAN_Oriol      # Job Name seen in the queue
+#BSUB -n 4                   # Request 4 CPU cores
+#BSUB -gpu "num=1:mode=exclusive_process" # Request 1 exclusive GPU
+#BSUB -W 00:20               # Max runtime (4 hours)
+#BSUB -R "rusage[mem=16GB]"  # Request 16GB of RAM
+### --- Log Files ---
+#BSUB -o logs/output_%J.txt  # Standard output log
+#BSUB -e logs/error_%J.txt   # Error log
+
+### 1. Load System Modules
+# Using the specific versions compatible with your setup
+module load cuda/12.4.1
+module load python3/3.12.11
+
+### 2. Activate Virtual Environment
+# IMPORTANT FIX: Using ".." to look for 'venv' in the parent directory
+source ../venv/bin/activate
+
+### 3. Safety Checks
+echo "Running on host: $(hostname)"
+echo "GPU available:"
+nvidia-smi
+
+### 4. RUN TRAINING
+# Executing the script with the defined arguments
+python train_KAN.py --adam 1000 --lbfgs 4000 --name "Run_Final_KAN"
+
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   414.77 sec.
+    Max Memory :                                 767 MB
+    Average Memory :                             723.83 MB
+    Total Requested Memory :                     65536.00 MB
+    Delta Memory :                               64769.00 MB
+    Max Swap :                                   -
+    Max Processes :                              4
+    Max Threads :                                8
+    Run time :                                   417 sec.
+    Turnaround time :                            644 sec.
+
+The output (if any) is above this job summary.
+
+
+
+PS:
+
+Read file <logs/error_27242712.txt> for stderr output of this job.
+
