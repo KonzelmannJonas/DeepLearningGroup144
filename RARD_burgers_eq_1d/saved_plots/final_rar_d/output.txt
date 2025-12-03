@@ -1,0 +1,7 @@
+RAR_D_adamptive_sampling:
+Training complete! Total time: 180.28 seconds
+relative L2 error: 7.157799e-02
+
+RAR_D_adaptive_sampling2:
+Training complete! Total time: 188.51 seconds
+relative L2 error: 7.481663e-01
